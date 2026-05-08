@@ -18,7 +18,7 @@ migrations (e.g., 80,000+ hosts)
   workflow job templates (including nodes, survey specs, and notification
   associations), schedules, RBAC role assignments, and more
 - **Classic RBAC Migration**: User and team resource role grants from AAP 1.0–2.5
-  are automatically translated to the AAP 2.6 RBAC model
+  are automatically translated to the AAP 2.5+ RBAC model
 - **Inventory Source Sync**: Inventory sources are automatically synced after
   import before constructed and smart inventories are created
 - **Professional Progress Display**: Rich-based live progress display with
@@ -329,26 +329,26 @@ The tool migrates resources in the correct dependency order:
 
 1. Organizations
 2. Labels
-3. Users
-4. Teams
-5. Credential Types
-6. Credentials
-7. Credential Input Sources
-8. Execution Environments
-9. Projects (with sync wait)
-10. Inventories
-11. Inventory Sources (with auto-sync wait)
-12. Constructed Inventories
-13. Inventory Groups (with nested hierarchy)
-14. Hosts (bulk operations, 200/batch) + host-group associations
-15. Notification Templates
-16. Job Templates (with survey specs and notification associations)
-17. Workflow Job Templates (with nodes, survey specs, and notification associations)
-18. System Job Templates
-19. Schedules
-20. Role Definitions (AAP 2.6 DAB RBAC)
-21. User Role Assignments
-22. Team Role Assignments
+3. Credential Types
+4. Credentials
+5. Credential Input Sources
+6. Execution Environments
+7. Projects (with sync wait)
+8. Inventories
+9. Inventory Sources (with auto-sync wait)
+10. Constructed Inventories
+11. Inventory Groups (with nested hierarchy)
+12. Hosts (bulk operations, 200/batch) + host-group associations
+13. Notification Templates
+14. Job Templates (with survey specs and notification associations)
+15. Workflow Job Templates (with nodes, survey specs, and notification associations)
+16. System Job Templates
+17. Schedules
+18. Users
+19. Teams
+20. Role Definitions (AAP 2.5+ RBAC)
+21. User Role Assignments (AAP 2.5+ RBAC)
+22. Team Role Assignments (AAP 2.5+ RBAC)
 
 ## Documentation
 
