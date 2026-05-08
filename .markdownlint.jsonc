@@ -14,6 +14,12 @@
     "allowed_elements": ["div", "span", "br", "details", "summary"]
   },
 
+  // MD024: Allow duplicate headings across different sections (e.g. ### Added in each
+  // changelog version block), but still flag true duplicates within the same section.
+  "MD024": {
+    "siblings_only": true
+  },
+
   // MD041: First line heading - disabled
   "MD041": false,
 

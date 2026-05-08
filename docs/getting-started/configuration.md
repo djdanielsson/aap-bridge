@@ -62,25 +62,70 @@ paths:
 
 ```yaml
 performance:
-  max_concurrent: 10           # Concurrent API requests
+  max_concurrent: 20           # Concurrent API requests
   batch_sizes:
-    organizations: 50
-    inventories: 100
-    hosts: 200                 # Maximum for bulk API
+    organizations: 100
+    inventories: 200           # Maximum API page size for optimal performance
+    hosts: 200                 # Maximum API page size (required for bulk operations)
     credentials: 50
-  rate_limit:
-    requests_per_second: 50
-    burst_size: 100
+  rate_limit: 25               # Requests per second
+
+  # Inventory source sync (runs after import before constructed/smart inventories)
+  inventory_source_update_job_timeout_seconds: 3600
+  inventory_source_update_poll_interval_seconds: 3
+  inventory_source_sync_max_concurrent: 5
+  inventory_source_sync_fail_on_job_failure: false  # Set true to abort on sync failure
+
+  # Project sync
+  project_sync_timeout: 600
+  project_sync_poll_interval: 10
+  project_sync_max_retries: 2
+  project_sync_fail_on_sync_failure: true
+
+```
+
+### Export Settings
+
+```yaml
+export:
+  # Skip hosts managed by inventory sources (recreated by sync on target)
+  skip_dynamic_hosts: true
+  skip_smart_inventories: false
+  skip_pending_deletion_inventories: true
+  skip_hosts_with_inventory_sources: false
+
+  # Installer-created execution environments – excluded by default.
+  # Set to [] to migrate all EEs.
+  skip_execution_environment_names:
+    - Control Plane Execution Environment
+    - Default execution environment
+    - Hub Default execution environment
+    - Hub Minimal execution environment
+    - Minimal execution environment
+
+  # Installer-created credentials – excluded by default.
+  # The AAP installer recreates these automatically in the target environment.
+  # Set to [] to migrate all credentials.
+  skip_credential_names:
+    - Ansible Galaxy
+    - Default Execution Environment Registry Credential
+
+  records_per_file: 1000  # Max records per split file
 
 ```
 
 ### Cleanup Settings
 
+Cleanup-related settings live under the `performance:` section:
+
 ```yaml
-cleanup:
-  skip_default_resources: true  # Skip Default org, admin user
-  batch_size: 100
-  max_concurrent: 5
+performance:
+  cleanup_max_concurrent: 50        # Maximum concurrent deletions
+  cleanup_job_cancel_concurrency: 10  # Maximum concurrent job cancellations (≤25 to prevent gateway overload)
+  cleanup_page_fetch_concurrency: 10  # Maximum concurrent page fetches during resource discovery
+  cleanup_job_finish_timeout: 300   # Seconds to wait for cancelled jobs to finish
+  cleanup_job_poll_interval: 5      # Seconds between job status checks
+  host_cleanup_batch_size: 200      # Hosts per batch during cleanup (max 500 - AAP limit)
 
 ```
 
@@ -88,9 +133,10 @@ cleanup:
 
 ```yaml
 logging:
-  console_level: WARNING        # Console output level
+  level: WARNING               # Console output level
   file_level: DEBUG            # File log level
-  log_file: ./logs/aap-bridge.log
+  file: logs/migration.log     # Log file path
+  format: json                 # Log format (json or console)
 
 ```
 
@@ -155,6 +201,7 @@ performance:
   batch_sizes:
     hosts: 200
     inventories: 200
+  rate_limit: 25
 
 ```
 
@@ -165,7 +212,6 @@ Reduce concurrent requests:
 ```yaml
 performance:
   max_concurrent: 5
-  rate_limit:
-    requests_per_second: 20
+  rate_limit: 20
 
-```text
+```

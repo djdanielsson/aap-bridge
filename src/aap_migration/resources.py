@@ -129,6 +129,7 @@ COMPATIBILITY_MATRIX: list[VersionPath] = [
         notes="Same-version migration path. Schema fully compatible.",
         known_exceptions=[
             "Encrypted credentials cannot be extracted from source API",
+            "Instance groups referenced by RBAC assignments must exist on the target with the same name",
         ],
     ),
 ]

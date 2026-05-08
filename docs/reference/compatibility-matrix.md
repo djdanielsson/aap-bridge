@@ -1,6 +1,7 @@
-# Source-Version Compatibility Matrix (AAP 2.3, 2.4, 2.5 → 2.6)
+# Source-Version Compatibility Matrix
 
-This document defines the supported source-to-target migration paths for the AAP Bridge tool and documents known version-specific exceptions.
+This document defines the supported source-to-target migration paths for the AAP Bridge tool
+and documents known version-specific exceptions.
 
 ## Support Status Key
 
@@ -14,35 +15,39 @@ This document defines the supported source-to-target migration paths for the AAP
 
 | Source Version | Target Version | Status | Evidence Date | Notes |
 |:---|:---|:---|:---|:---|
-| AAP 2.3 | AAP 2.6 | **Supported** | 2026-03-24 | Primary migration path. Fully tested across all resource types. |
-| AAP 2.4 | AAP 2.6 | **Partial** | 2026-03-24 | Core resource families verified. Inventory plugin changes may require review. |
-| AAP 2.5 | AAP 2.6 | **Partial** | 2026-03-24 | Schema differences are minimal. RBAC model changes require manual review. |
+| AAP 1.0 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 1.1 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 1.2 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 2.0 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 2.1 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 2.2 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 2.3 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 2.4 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 2.5 | AAP 2.6 | **Supported** | 2026-04-25 | Primary migration path. Fully tested. |
+| AAP 2.6 | AAP 2.6 | **Supported** | 2026-04-25 | Same-version migration path. Schema fully compatible. |
 
 ## Known Version-Specific Exceptions
 
 ### All Source Versions → AAP 2.6
 
-- **Encrypted Credentials**: Encrypted field values (passwords, SSH keys) cannot be extracted via the source AAP API. These must be migrated using HashiCorp Vault or re-entered manually on the target.
-- **Platform Gateway**: All API calls to the target AAP 2.6 instance must be routed through the Platform Gateway.
+- **Encrypted Credentials**: Encrypted field values (passwords, SSH keys) cannot be extracted
+  via the source AAP API. These must be migrated using HashiCorp Vault or re-entered manually
+  on the target.
 
-### AAP 2.3 → AAP 2.6
+### AAP 2.5+ → AAP 2.6
 
-- **Custom Credential Types**: May require manual pre-creation on the target if they use complex schema features not fully handled by the automated transformation.
-
-### AAP 2.4 → AAP 2.6
-
-- **Inventory Plugins**: Configuration format for certain inventory plugins changed between 2.4 and 2.6. Review imported inventories that use SCM or cloud-based sources.
-
-### AAP 2.5 → AAP 2.6
-
-- **RBAC Model**: The RBAC model was significantly restructured in AAP 2.6. While basic user and team assignments are migrated, complex custom role definitions should be manually reviewed on the target.
+- **Instance Groups**: Instance groups referenced by RBAC assignments must exist on the target
+  with the same name before migration.
 
 ## Verifying Your Migration Path
 
-The `aap-bridge prep` command automatically discovers the versions of your source and target instances and validates them against this matrix.
+The `aap-bridge prep` command automatically discovers the versions of your source and target
+instances and validates them against this matrix.
 
 ```bash
 aap-bridge prep --config config.yaml
 ```
 
-If your version pair is not fully supported, the tool will issue a warning and list known exceptions for that path. You can override an "Unsupported" status using the `--force` flag, but this is recommended for experimental use only.
+If your version pair is not fully supported, the tool will issue a warning and list known
+exceptions for that path. You can override an "Unsupported" status using the `--force` flag,
+but this is recommended for experimental use only.
