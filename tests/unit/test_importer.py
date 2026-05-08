@@ -9,10 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from aap_migration.client.aap_target_client import AAPTargetClient
-from aap_migration.client.exceptions import ConflictError
+from aap_migration.client.exceptions import APIError, ConflictError
 from aap_migration.config import PerformanceConfig
 from aap_migration.migration.importer import (
     CredentialImporter,
+    CredentialTypeImporter,
     HostImporter,
     InventoryGroupImporter,
     InventoryImporter,
@@ -525,6 +526,43 @@ class TestCredentialImporter:
         """Test that credentials have correct dependencies."""
         assert "organization" in credential_importer.DEPENDENCIES
         assert "credential_type" in credential_importer.DEPENDENCIES
+
+
+class TestCredentialTypeImporter:
+    """Tests for CredentialTypeImporter."""
+
+    @pytest.fixture
+    def credential_type_importer(self, mock_client, mock_state, performance_config):
+        return CredentialTypeImporter(mock_client, mock_state, performance_config)
+
+    @pytest.mark.asyncio
+    async def test_maps_existing_after_create_already_exists(
+        self, credential_type_importer, mock_client, mock_state
+    ):
+        """Reruns should map existing credential types instead of failing."""
+        mock_state.is_migrated.return_value = False
+        mock_client.get = AsyncMock(
+            side_effect=[
+                {"results": []},  # initial lookup by name: not found
+                {"results": [{"id": 501, "name": "Custom CT"}]},  # conflict recovery lookup
+            ]
+        )
+        mock_client.create_resource = AsyncMock(
+            side_effect=APIError("already exists", status_code=400)
+        )
+
+        result = await credential_type_importer.import_resource(
+            resource_type="credential_types",
+            source_id=77,
+            data={"name": "Custom CT", "managed": False, "kind": "cloud"},
+        )
+
+        assert result is not None
+        assert result["id"] == 501
+        assert result.get("_skipped") is True
+        assert credential_type_importer.stats["imported_count"] == 0
+        assert credential_type_importer.stats["skipped_count"] == 1
+        mock_state.mark_completed.assert_called_once()
 
 
 class TestProjectImporter:

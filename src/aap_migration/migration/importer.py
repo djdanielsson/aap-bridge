@@ -1143,18 +1143,50 @@ class CredentialTypeImporter(ResourceImporter):
                     data = await self._resolve_dependencies(resource_type, data)
 
                 # Create resource
-                result = await self.client.create_resource(
-                    resource_type="credential_types",
-                    data=data,
-                    check_exists=False,
-                )
-                target_id = result["id"]
-                logger.info(
-                    "credential_type_created",
-                    name=name,
-                    source_id=source_id,
-                    target_id=target_id,
-                )
+                try:
+                    result = await self.client.create_resource(
+                        resource_type="credential_types",
+                        data=data,
+                        check_exists=False,
+                    )
+                    target_id = result["id"]
+                    logger.info(
+                        "credential_type_created",
+                        name=name,
+                        source_id=source_id,
+                        target_id=target_id,
+                    )
+                except APIError as e:
+                    error_str = str(e).lower()
+                    is_already_exists = "already exists" in error_str or (
+                        e.response
+                        and any(
+                            "already exists" in str(v).lower()
+                            for v in (e.response.values() if isinstance(e.response, dict) else [])
+                        )
+                    )
+                    if not is_already_exists:
+                        raise
+
+                    # Precheck can miss edge-cases on reruns; if CREATE says it already
+                    # exists, map by name and mark completed to keep phase1 idempotent.
+                    existing_results = await self.client.get("credential_types/", params={"name": name})
+                    existing_resources = existing_results.get("results", [])
+                    if not existing_resources:
+                        raise
+
+                    target_id = existing_resources[0]["id"]
+                    target_name = existing_resources[0].get("name", name)
+                    logger.info(
+                        "credential_type_exists_mapped_after_create_conflict",
+                        name=name,
+                        target_name=target_name,
+                        source_id=source_id,
+                        target_id=target_id,
+                    )
+                    self.stats["skipped_count"] += 1
+                    name = target_name
+                    result = {"id": target_id, "name": target_name, "_skipped": True}
 
             # Save mapping
             self.state.save_id_mapping(
@@ -1170,6 +1202,8 @@ class CredentialTypeImporter(ResourceImporter):
                 target_id=target_id,
                 target_name=name,
             )
+            if result.get("_skipped"):
+                return result
             self.stats["imported_count"] += 1
 
             return result
