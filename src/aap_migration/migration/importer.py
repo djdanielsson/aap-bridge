@@ -1143,18 +1143,50 @@ class CredentialTypeImporter(ResourceImporter):
                     data = await self._resolve_dependencies(resource_type, data)
 
                 # Create resource
-                result = await self.client.create_resource(
-                    resource_type="credential_types",
-                    data=data,
-                    check_exists=False,
-                )
-                target_id = result["id"]
-                logger.info(
-                    "credential_type_created",
-                    name=name,
-                    source_id=source_id,
-                    target_id=target_id,
-                )
+                try:
+                    result = await self.client.create_resource(
+                        resource_type="credential_types",
+                        data=data,
+                        check_exists=False,
+                    )
+                    target_id = result["id"]
+                    logger.info(
+                        "credential_type_created",
+                        name=name,
+                        source_id=source_id,
+                        target_id=target_id,
+                    )
+                except APIError as e:
+                    error_str = str(e).lower()
+                    is_already_exists = "already exists" in error_str or (
+                        e.response
+                        and any(
+                            "already exists" in str(v).lower()
+                            for v in (e.response.values() if isinstance(e.response, dict) else [])
+                        )
+                    )
+                    if not is_already_exists:
+                        raise
+
+                    # Precheck can miss edge-cases on reruns; if CREATE says it already
+                    # exists, map by name and mark completed to keep phase1 idempotent.
+                    existing_results = await self.client.get("credential_types/", params={"name": name})
+                    existing_resources = existing_results.get("results", [])
+                    if not existing_resources:
+                        raise
+
+                    target_id = existing_resources[0]["id"]
+                    target_name = existing_resources[0].get("name", name)
+                    logger.info(
+                        "credential_type_exists_mapped_after_create_conflict",
+                        name=name,
+                        target_name=target_name,
+                        source_id=source_id,
+                        target_id=target_id,
+                    )
+                    self.stats["skipped_count"] += 1
+                    name = target_name
+                    result = {"id": target_id, "name": target_name, "_skipped": True}
 
             # Save mapping
             self.state.save_id_mapping(
@@ -1170,6 +1202,8 @@ class CredentialTypeImporter(ResourceImporter):
                 target_id=target_id,
                 target_name=name,
             )
+            if result.get("_skipped"):
+                return result
             self.stats["imported_count"] += 1
 
             return result
@@ -3004,6 +3038,26 @@ class HostImporter(ResourceImporter):
                     self.stats["skipped_count"] += 1
                     batch_skipped += 1
                     continue
+                mapped_target_id = self.state.get_mapped_id("hosts", source_id)
+                if mapped_target_id is not None:
+                    # Host already has an id_mapping from a prior run; treat as migrated.
+                    self.state.mark_completed(
+                        resource_type="hosts",
+                        source_id=source_id,
+                        target_id=mapped_target_id,
+                        source_name=source_name,
+                        target_name=source_name,
+                    )
+                    self.stats["skipped_count"] += 1
+                    batch_skipped += 1
+                    continue
+
+                self.state.mark_in_progress(
+                    resource_type="hosts",
+                    source_id=source_id,
+                    source_name=source_name,
+                    phase="import",
+                )
 
                 source_ids.append(source_id)
                 source_info.append(
@@ -3044,17 +3098,29 @@ class HostImporter(ResourceImporter):
                     mappings = []
                     for idx, created_host in enumerate(created_hosts):
                         if idx < len(source_info):
+                            source_id = source_info[idx]["source_id"]
+                            source_name = source_info[idx]["source_name"]
+                            target_id = created_host["id"]
                             mappings.append(
                                 {
                                     "resource_type": "hosts",
-                                    "source_id": source_info[idx]["source_id"],
-                                    "target_id": created_host["id"],
-                                    "source_name": source_info[idx]["source_name"],
+                                    "source_id": source_id,
+                                    "target_id": target_id,
+                                    "source_name": source_name,
                                     "target_name": created_host.get("name"),
                                 }
                             )
 
                     self.state.batch_create_mappings(mappings)
+                    for idx, created_host in enumerate(created_hosts):
+                        if idx >= len(source_info):
+                            break
+                        self.state.mark_completed(
+                            resource_type="hosts",
+                            source_id=source_info[idx]["source_id"],
+                            target_id=created_host["id"],
+                            target_name=created_host.get("name"),
+                        )
 
                     # Associate each created host with its groups
                     for idx, created_host in enumerate(created_hosts):

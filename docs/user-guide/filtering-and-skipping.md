@@ -107,6 +107,8 @@ Resources that have already been successfully migrated are skipped:
 
 - The state database tracks `source_id → target_id` mappings
 - On subsequent runs, migrated resources are skipped
+- Host bulk imports also consult existing host mappings to avoid duplicate creates
+- Credential type create conflicts are reconciled to existing targets and marked completed
 - **Stats:** Increments `skipped_count`
 
 ### Managed Resources

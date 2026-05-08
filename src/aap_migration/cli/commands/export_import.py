@@ -1819,35 +1819,31 @@ def import_cmd(
                                     progress.update_phase(phase_id, success, failed, skipped)
 
                                 method = getattr(importer, method_name)
+                                base_imported = int(importer.stats.get("imported_count", 0))
+                                base_skipped = int(importer.stats.get("skipped_count", 0))
+                                base_errors = int(importer.stats.get("error_count", 0))
                                 results = await method(
                                     resources_to_import, progress_callback=update_progress
                                 )
 
-                                # Calculate actual imported, failed, and skipped from results
-                                imported_count = len(
-                                    [r for r in results if r and not r.get("_skipped")]
-                                )
-                                skipped_in_import = len(
-                                    [r for r in results if r and r.get("_skipped")]
-                                )
-                                failed_count = (
-                                    len(resources_to_import) - imported_count - skipped_in_import
-                                )
+                                # Use importer stats deltas instead of inferring from `results`.
+                                # Some rerun skips return None (already migrated), which should be
+                                # counted as skipped, not failed.
+                                imported_count = int(importer.stats.get("imported_count", 0)) - base_imported
+                                skipped_in_import = int(importer.stats.get("skipped_count", 0)) - base_skipped
+                                failed_count = int(importer.stats.get("error_count", 0)) - base_errors
 
                                 # Final progress update
                                 progress.update_phase(
                                     phase_id,
-                                    completed=imported_count + failed_count + skipped_in_import,
+                                    completed=imported_count + failed_count,
                                     failed=failed_count,
                                     skipped=skipped_in_import,
                                 )
-
-                                # Aggregate this phase's skips into total_skipped
-                                total_skipped += skipped_in_import
                             else:
                                 imported_count = 0
-                                skipped_in_import = 0  # All resources were skipped by pre-check and counted in skipped_count
-                                total_skipped += skipped_in_import
+                                skipped_in_import = 0  # pre-check handled all skips
+                                failed_count = 0
                                 logger.info(
                                     "all_resources_exist",
                                     resource_type=rtype,
@@ -2064,9 +2060,7 @@ def import_cmd(
                             skipped_in_import + skipped_count
                         )  # Combine skips from importer and pre-check
                         total_skipped += final_skipped_for_phase
-                        final_failed_for_phase = (
-                            len(resources) - imported_count - final_skipped_for_phase
-                        )
+                        final_failed_for_phase = failed_count
                         total_failed += final_failed_for_phase
 
                         # Store stats for summary
