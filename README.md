@@ -11,6 +11,16 @@ migrations (e.g., 80,000+ hosts)
   capability
 - **Idempotency**: Safely resume interrupted migrations without creating
   duplicates
+- **Broad Source Version Support**: Migrate from AAP 1.0, 1.1, 1.2, 2.0, 2.1,
+  2.2, 2.3, 2.4, 2.5, or 2.6 to a target AAP 2.6 instance
+- **Complete Resource Coverage**: Organizations, users, teams, credentials,
+  execution environments, inventories, groups, hosts, projects, job templates,
+  workflow job templates (including nodes, survey specs, and notification
+  associations), schedules, RBAC role assignments, and more
+- **Classic RBAC Migration**: User and team resource role grants from AAP 1.0–2.5
+  are automatically translated to the AAP 2.6 RBAC model
+- **Inventory Source Sync**: Inventory sources are automatically synced after
+  import before constructed and smart inventories are created
 - **Professional Progress Display**: Rich-based live progress display with
   real-time metrics (rate, success/fail counts, timing)
 - **Flexible Output Modes**: Normal, quiet, CI/CD, and detailed modes for
@@ -70,11 +80,13 @@ uv sync
 
 ### Configuration
 
-The project includes configuration files with recommended default values. You need to set up your environment variables for AAP credentials and the database.
+The project includes configuration files with recommended default values. You need to set up
+your environment variables for AAP credentials and the database.
 
 #### 1. Database Setup
 
-The tool requires a PostgreSQL database to track migration state. You must create this database before running the tool. The tool will automatically create the necessary tables on first run.
+The tool requires a PostgreSQL database to track migration state. You must create this database
+before running the tool. The tool will automatically create the necessary tables on first run.
 
 ```bash
 
@@ -118,12 +130,25 @@ cp .env.example .env
 
 Edit `.env` with your AAP instance details and database connection string.
 
-**Critical AAP 2.6 Note:** The Target URL must point to the **Platform Gateway** (`/api/controller/v2`), not the direct controller API.
+**Critical AAP 2.6 Note:** The Target URL must point to the **Platform Gateway**
+(`/api/controller/v2`), not the direct controller API.
 
-To get your tokens easily, you can get them through the API with a curl command
-* For AAP 2.4 and earlier, `curl -k -X POST -u "<<username>>:<<password>>" -H "Content-Type: application/json" -d '{"description": "CLI Token", "scope": "write"}' https://<<aap_base_url>>/api/v2/tokens/ | jq -r '.token'`
-* For AAP 2.6 and later,  `curl -k -X POST -u "<<username>>:<<password>>" -H "Content-Type: application/json" -d '{"description": "CLI Token", "scope": "write"}' https://<<aap_base_url>>/api/gateway/v1/tokens/ | jq -r '.token'`
+To retrieve API tokens via the command line (take care to not get the password in your
+SHELL history):
 
+```bash
+# AAP 2.5 and earlier
+curl -k -X POST -u "<username>:<password>" \
+  -H "Content-Type: application/json" \
+  -d '{"description": "CLI Token", "scope": "write"}' \
+  https://<aap_base_url>/api/v2/tokens/ | jq -r '.token'
+
+# AAP 2.6 and later (Platform Gateway)
+curl -k -X POST -u "<username>:<password>" \
+  -H "Content-Type: application/json" \
+  -d '{"description": "CLI Token", "scope": "write"}' \
+  https://<aap_base_url>/api/gateway/v1/tokens/ | jq -r '.token'
+```
 
 ```bash
 
@@ -154,8 +179,14 @@ Review and adjust `config/config.yaml` for your environment:
 - **Performance settings**: Adjust batch sizes and concurrency based on your AAP instance capacity
 - **Logging**: Configure log levels and file paths
 - **Migration phases**: Enable/disable specific resource types
+- **`export.skip_execution_environment_names`**: List of EE names to exclude from
+  export/import/cleanup (defaults to the platform-managed EEs). Set to `[]` to migrate all EEs.
+- **`export.skip_credential_names`**: List of credential names to exclude (defaults to
+  `["Ansible Galaxy", "Default Execution Environment Registry Credential"]`). These are
+  recreated automatically by the AAP installer.
 
-1. Update `config/mappings.yaml` if you need to rename resources during migration (e.g., credential types with different names between AAP versions).
+Update `config/mappings.yaml` if you need to rename resources during migration (e.g.,
+credential types with different names between AAP versions).
 
 ### Usage
 
@@ -289,19 +320,35 @@ aap-bridge migrate resume --checkpoint inventories_batch_50
 
 ### Idempotency
 
-The tool tracks all migrated resources in a state database, ensuring that running the migration multiple times is safe and won't create duplicates.
+The tool tracks all migrated resources in a state database, ensuring that running the migration
+multiple times is safe and won't create duplicates.
 
 ## Migration Order
 
 The tool migrates resources in the correct dependency order:
 
-1. Organizations, Labels, Users, Teams
-2. Credential Types, Credentials
-3. Projects, Execution Environments
-4. Inventories (bulk operations)
-5. Hosts (bulk operations, 200/batch)
-6. Job Templates, Workflows
-7. RBAC role assignments
+1. Organizations
+2. Labels
+3. Users
+4. Teams
+5. Credential Types
+6. Credentials
+7. Credential Input Sources
+8. Execution Environments
+9. Projects (with sync wait)
+10. Inventories
+11. Inventory Sources (with auto-sync wait)
+12. Constructed Inventories
+13. Inventory Groups (with nested hierarchy)
+14. Hosts (bulk operations, 200/batch) + host-group associations
+15. Notification Templates
+16. Job Templates (with survey specs and notification associations)
+17. Workflow Job Templates (with nodes, survey specs, and notification associations)
+18. System Job Templates
+19. Schedules
+20. Role Definitions (AAP 2.6 DAB RBAC)
+21. User Role Assignments
+22. Team Role Assignments
 
 ## Documentation
 
@@ -394,17 +441,20 @@ make check
 
 ### Encrypted Credentials
 
-**Important**: Encrypted credentials cannot be extracted from source AAP via API. Passwords, SSH keys, and secret fields will show as `$encrypted$`.
+**Important**: Encrypted credentials cannot be extracted from source AAP via API. Passwords,
+SSH keys, and secret fields will show as `$encrypted$`.
 
 **Solution**: Credentials must be manually recreated in HashiCorp Vault before migration.
 
 ### Platform Gateway
 
-AAP 2.6 routes all API calls through the Platform Gateway at `https://<gateway>/api/controller/v2/`. The tool automatically handles this routing.
+AAP 2.6 routes all API calls through the Platform Gateway at
+`https://<gateway>/api/controller/v2/`. The tool automatically handles this routing.
 
 ## Project Status
 
-**Current Version**: 0.1.0 - Initial Release
+**Current Version**: 0.1.0+ (active development — see [CHANGELOG.md](CHANGELOG.md) for the
+full list of changes since the initial release)
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
@@ -418,7 +468,8 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the
+[LICENSE](LICENSE) file for details.
 
 ## Security
 
@@ -426,7 +477,8 @@ For security concerns and vulnerability reporting, please see [SECURITY.md](SECU
 
 ## Support
 
-- **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/redhat-cop/aap-bridge/issues)
+- **Issues**: Report bugs and request features via
+  [GitHub Issues](https://github.com/redhat-cop/aap-bridge/issues)
 - **Security**: Report vulnerabilities privately (see [SECURITY.md](SECURITY.md))
 
 ## Acknowledgments

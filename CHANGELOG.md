@@ -8,6 +8,120 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Source Version Support**: AAP 1.0, 1.1, 1.2, 2.0, 2.1, 2.2, 2.5, and 2.6 are now
+  supported as migration sources in addition to the original 2.3/2.4/2.5 paths
+- **Survey Spec Migration**: Job template and workflow job template survey specs are now
+  exported via `GET …/{id}/survey_spec/` and imported via `POST …/{id}/survey_spec/`
+- **Notification Template Associations**: Notification template relationships for job
+  templates (started/success/error) and workflow job templates (including approvals) are
+  now exported and imported as part of the template migration
+- **Nested Group Hierarchies**: Inventory group parent-child relationships are now fully
+  exported and recreated on the target
+- **Host-Group Associations**: Hosts are associated with their groups after bulk import
+  rather than being left unattached
+- **Constructed Inventory `input_inventories`**: The list of member inventories for
+  constructed inventories is now exported and re-linked on the target
+- **Inventory Source Auto-Sync**: After importing inventory sources the tool automatically
+  triggers a sync and waits for completion before proceeding to constructed inventories
+  and smart inventories, ensuring those depend on fresh host data
+- **Classic RBAC Migration (Users)**: Direct user resource role grants are exported from
+  `GET /users/{id}/roles/` and applied on the target AAP 2.6 RBAC model
+- **Classic RBAC Migration (Teams)**: Team resource role grants are exported from
+  `GET /teams/{id}/roles/` and applied on the target
+- **`role_definitions` Cleanup**: Custom role definitions are now deleted during the
+  cleanup phase; system-managed roles that return 400 are gracefully skipped
+- **`skip_credential_names` Configuration**: New `export.skip_credential_names` option
+  (defaults to `["Ansible Galaxy", "Default Execution Environment Registry Credential"]`)
+  excludes installer-created credentials from export, import, and cleanup — the same
+  pattern as `skip_execution_environment_names`
+- **`skip_execution_environment_names` Configuration**: New
+  `export.skip_execution_environment_names` option (defaults to the platform-managed EE names)
+  excludes default execution environments from export, import, and cleanup
+- **Configurable Inventory Source Sync**: New performance settings control the sync
+  timeout, polling interval, concurrency, and failure behaviour for post-import
+  inventory source updates
+- **CI/CD Docs Workflow**: GitHub Actions workflow added to publish MkDocs documentation
+  via `gh-deploy` on push to `main`
+- **AAP Token Retrieval Docs**: `curl` commands with `jq` for retrieving API tokens from
+  AAP 2.4 and earlier (`/api/v2/tokens/`) and AAP 2.6+ (`/api/gateway/v1/tokens/`) are
+  now documented
+
+### Changed
+
+- **All Migration Paths Marked Fully Supported**: The 2.3 → 2.6, 2.4 → 2.6, and
+  2.5 → 2.6 paths are all now marked as fully supported; messaging is standardised
+- **`inventory_sources` Re-ordered**: Inventory sources are now imported before
+  constructed inventories and smart inventories to satisfy sync dependencies
+- **Smart Inventories Deferred**: Smart inventory import is now a dedicated phase that
+  runs after inventory source sync completes, preventing membership lookup failures
+- **Users and Teams Phase Re-ordered**: Users and teams are now processed in phase 2
+  (immediately before `role_definitions`) so that job templates, workflows, and
+  inventories are already mapped when role grants are applied
+- **Error Output Simplified**: Console error output no longer renders full Rich
+  tracebacks with local variable dumps; errors render as a single summary line
+
+### Fixed
+
+- **Credentials – Same-Name Different Types**: Credentials sharing a name but with
+  different credential types were silently collapsed to one entry; the precheck and
+  importer now key on `(name, credential_type)` so both survive
+- **Credentials – Non-Unique Name/Org/Type**: Sources that contain multiple credentials
+  with an identical `(name, org, credential_type)` composite key are handled by always
+  CREATing a new credential; idempotency is guaranteed by `MigrationProgress` rather
+  than name matching
+- **Credentials – Duplicate Key on Import (400)**: When the target returns a 400
+  "duplicate key / already exists" error during credential import, the duplicate is
+  renamed to `<name> [src:<source_id>]` and retried so every source credential gets
+  its own distinct target entry; previous behaviour mapped all duplicates to a single
+  target credential, breaking downstream dependency resolution
+- **Precheck – Org-Scoped Resource Collisions**: Resources such as projects,
+  inventories, and job templates that share a name across different organizations were
+  silently deduplicated during the batch precheck; they are now keyed on
+  `(name, org_id)` so all entries are preserved
+- **Precheck – Parent-Scoped Resources**: Inventory sources, hosts, and groups that
+  share a name across different inventories were treated as globally unique; the
+  precheck now keys them on `(name, source_parent_id)` and resolves the parent ID
+  mapping before the existence check
+- **Precheck – Notification Templates and Schedules Scoping**: Both resource types were
+  treated as globally unique, causing same-name entries in different parent scopes to
+  be dropped; notification templates are now org-scoped and schedules are keyed by
+  `(name, unified_job_template)`
+- **Project Sync – Failure Detection**: Project SCM sync failures are now detected,
+  automatically retried up to `project_sync_max_retries` times, and the run is aborted
+  if the failure persists (configurable via `project_sync_fail_on_sync_failure`)
+- **Schedules – System-Job Schedules Excluded**: `system_job` type schedules are now
+  skipped during export, import, and cleanup to avoid 400 errors on the target
+- **Credential Types – Namespace Fallback**: Built-in credential types that were renamed
+  between AAP versions (e.g. the CyberArk lookup type) are now matched by stable
+  `namespace` when the name lookup fails, preventing spurious 404 errors
+- **User Team Memberships**: User-to-team memberships are now exported via
+  `users/<id>/teams/` and re-applied on import; a post-teams resync step ensures
+  membership is consistent even when users were imported before teams
+- **Vault Configuration Optional**: The `vault:` block in `config.yaml` is now
+  entirely optional; omitting it no longer raises a validation error at startup
+- **Cleanup – Inventory Sources Excluded**: Inventory sources are no longer deleted
+  during cleanup (they are managed by the parent inventory)
+- **Cleanup – Preserve Job History**: The cleanup status filter query is fixed so that
+  running jobs are correctly cancelled and historical job records are preserved
+- **Cleanup – Groups and Hosts Excluded**: Groups and hosts are skipped during the
+  cleanup phase; they are removed when their parent inventory is deleted
+- **Cleanup – Execution Environments Always Protected**: Managed EEs (e.g. Control
+  Plane Execution Environment) are now protected from deletion in `--full` mode as well
+  as the default mode; previously the `is_managed` guard only applied outside `--full`
+- **Cleanup – False Warning for Cascade-Deleted Phases**: The spurious warning for
+  phases that were already removed by cascade deletion is suppressed in the cleanup TUI
+- **Import – `notification_templates`, `credential_input_sources`, `rbac` Dispatch**:
+  These resource types were unreachable in the CLI method map and were silently skipped;
+  the dispatch table is corrected so all three are importable
+- **Import – Workflow Job Templates Dispatch**: `workflow_job_templates` was not
+  dispatching to `WorkflowImporter`; fixed so the importer is always called
+- **Client – 400 Pending Deletion Treated as Idempotent**: A `400` response indicating
+  that a resource is pending deletion is now treated as a skip rather than an error
+- **Instance Groups Exception Scoped to 2.5**: The instance groups API exception
+  handling that was applied to all source versions is now scoped to AAP 2.5 only
+
 ## [0.1.0] - 2025-12-05
 
 ### Added
@@ -17,7 +131,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   - ETL pipeline for source-to-target AAP migrations
   - Support for all major AAP resource types: organizations, users, teams,
     credentials, credential types, execution environments, projects,
-    inventories, hosts, job templates, workflow job templates, and schedules
+    inventories, inventory sources, inventory groups, hosts, job templates,
+    workflow job templates, notification templates, and schedules
   - RBAC role assignment migration
   - Bulk API operations for high-performance host and inventory imports
 - **State Management**

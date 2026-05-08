@@ -8,7 +8,42 @@ in the repository.
 
 ## Version History
 
-### v0.1.0 (Current)
+### Unreleased (since v0.1.0)
+
+**New Features:**
+
+- Source version support expanded to AAP 1.0, 1.1, 1.2, 2.0, 2.1, 2.2, 2.5, and 2.6
+- Survey spec migration for job templates and workflow job templates
+- Notification template association migration (started/success/error/approvals)
+- Nested inventory group hierarchy export and import
+- Host-to-group associations applied after bulk import
+- Constructed inventory `input_inventories` exported and re-linked on target
+- Automatic inventory source sync after import (with configurable timeout/polling)
+- Smart inventory import deferred until after inventory source sync
+- Classic RBAC migration for user and team resource role grants
+- `role_definitions` included in cleanup phase
+- `skip_credential_names` configuration option (defaults exclude installer-created credentials)
+- `skip_execution_environment_names` configuration option (defaults exclude platform-managed EEs)
+- MkDocs GitHub Actions deployment workflow
+
+**Bug Fixes:**
+
+- Credential deduplication: same-name/different-type and non-unique name+org+type cases
+  handled correctly
+- Batch precheck scoping fixed for org-scoped, parent-scoped, notification template, and
+  schedule resources
+- Project sync failure detection with retry and configurable abort
+- System-job schedules excluded from export/import/cleanup
+- Managed credential types matched by namespace when name differs between versions
+- User team memberships exported and re-applied on import
+- Vault configuration is now optional
+- Cleanup: inventory sources excluded, job history preserved, groups/hosts skipped
+- Managed execution environments always protected from deletion (including in `--full` mode)
+- Import dispatch table corrected for `notification_templates`, `credential_input_sources`,
+  `rbac`, and `workflow_job_templates`
+- 400 "pending deletion" responses treated as idempotent skips
+
+### v0.1.0
 
 Initial release of AAP Bridge.
 
@@ -30,23 +65,26 @@ Initial release of AAP Bridge.
 - Teams
 - Credential Types
 - Credentials
+- Credential Input Sources
 - Execution Environments
 - Inventories
 - Inventory Sources
 - Inventory Groups
 - Hosts
-- Instances
-- Instance Groups
 - Projects
+- Notification Templates
 - Job Templates
 - Workflow Job Templates
+- System Job Templates
 - Schedules
+- Role Definitions
+- User Role Assignments
+- Team Role Assignments
 
 **Known Limitations:**
 
-- Encrypted credentials cannot be migrated (API limitation)
-- RBAC assignments require manual verification
-- Workflow approval nodes need manual setup
+- Encrypted credentials cannot be migrated via API (use HashiCorp Vault or manual entry)
+- Workflow approval nodes require manual review after migration
 
 ---
 

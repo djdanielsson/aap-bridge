@@ -1,12 +1,15 @@
 # Filtering and Skipping Logic
 
-This document explains why resource counts in the target environment may be lower than the source. AAP Bridge applies various filters and skip conditions across different phases to ensure a clean, consistent migration.
+This document explains why resource counts in the target environment may be lower than the
+source. AAP Bridge applies various filters and skip conditions across different phases to
+ensure a clean, consistent migration.
 
 ## Overview
 
 Resources can be filtered or skipped for several reasons:
 
-- **Intentional exclusion**: Dynamic hosts, smart inventories, installer-created default credentials, and disabled schedules are excluded by design
+- **Intentional exclusion**: Dynamic hosts, smart inventories, installer-created default
+  credentials, and disabled schedules are excluded by design
 - **Dependency validation**: Resources with missing dependencies cannot be migrated
 - **Idempotency**: Already-migrated resources are skipped to prevent duplicates
 - **System constraints**: Some resources are read-only or non-deletable
@@ -28,6 +31,7 @@ These filters are controlled via `config.yaml` under the `export:` section:
 | `skip_pending_deletion_inventories` | `true` | Inventories | Excludes inventories marked for deletion in the source. |
 | `skip_hosts_with_inventory_sources` | `true` | Hosts | Same as `skip_dynamic_hosts` - excludes hosts with `has_inventory_sources=true`. |
 | `skip_credential_names` | `["Ansible Galaxy", "Default Execution Environment Registry Credential"]` | Credentials | Excludes installer-created default credentials by name (case-insensitive). The target installer recreates these automatically. Use `[]` to migrate all credentials. |
+| `skip_execution_environment_names` | `["Control Plane Execution Environment", "Default execution environment", ...]` | Execution Environments | Excludes platform-managed EEs by name (case-insensitive). These are recreated by the AAP installer. Use `[]` to migrate all EEs. |
 
 **Example configuration:**
 
@@ -40,6 +44,13 @@ export:
   skip_credential_names:
     - Ansible Galaxy
     - Default Execution Environment Registry Credential
+  # Remove entries or use [] to migrate these execution environments
+  skip_execution_environment_names:
+    - Control Plane Execution Environment
+    - Default execution environment
+    - Hub Default execution environment
+    - Hub Minimal execution environment
+    - Minimal execution environment
 ```
 
 ### Built-in Filters (Not Configurable)
@@ -50,7 +61,8 @@ export:
 | Credential Types | All exported | Both managed (built-in) and custom types are exported for mapping purposes. |
 
 !!! note "Dynamic Hosts"
-    Hosts managed by inventory sources (EC2, VMware, etc.) are excluded because they will be automatically recreated when the inventory source syncs on the target controller.
+    Hosts managed by inventory sources (EC2, VMware, etc.) are excluded because they will be
+    automatically recreated when the inventory source syncs on the target controller.
 
 ---
 
@@ -78,7 +90,8 @@ Resources are skipped if their **required** dependencies weren't exported or don
 
 ### External Credential Types
 
-Credentials using external credential types (custom types from the source) are skipped if the credential type cannot be mapped to the target environment.
+Credentials using external credential types (custom types from the source) are skipped if the
+credential type cannot be mapped to the target environment.
 
 **Log message:** `skipping_credential_external_type_unmapped`
 
@@ -125,6 +138,8 @@ The cleanup command excludes certain resources that cannot be deleted.
 |---------------|--------|
 | Labels | API returns 405 Method Not Allowed |
 | System Job Templates | Built-in, cannot be deleted |
+| Managed Execution Environments | `is_managed=true` EEs (e.g. Control Plane EE) are protected unconditionally |
+| Named EEs in `skip_execution_environment_names` | Excluded by name list even in `--full` mode |
 
 ### Excluded Endpoint Categories
 
@@ -143,6 +158,7 @@ The cleanup command excludes certain resources that cannot be deleted.
 | Export | Dynamic hosts (inventory source managed) | Yes | Check `skip_dynamic_hosts` setting |
 | Export | Smart/pending deletion inventories | Yes | Check `skip_smart_inventories` setting |
 | Export | Installer-created default credentials | Yes | Check `skip_credential_names` setting |
+| Export | Platform-managed execution environments | Yes | Check `skip_execution_environment_names` setting |
 | Export | Disabled schedules | No | Only enabled schedules are exported |
 | Transform | Missing organization | No | Check export logs for organization |
 | Transform | Missing credential type | No | Ensure credential types exported first |
@@ -164,21 +180,28 @@ When comparing source and target counts, consider:
 1. **Hosts**: If `skip_dynamic_hosts=true` (default), dynamic hosts won't be counted
 2. **Inventories**: Smart inventories and pending deletion inventories are excluded
 3. **Schedules**: Disabled schedules are not exported
-4. **Credentials**: Installer-created defaults (`Ansible Galaxy`, `Default Execution Environment Registry Credential`) are skipped by default; others may be skipped due to unmapped external types
+4. **Credentials**: Installer-created defaults (`Ansible Galaxy`,
+   `Default Execution Environment Registry Credential`) are skipped by default; others may be
+   skipped due to unmapped external types
+5. **Execution Environments**: Platform-managed EEs (e.g. `Control Plane Execution Environment`)
+   are skipped and protected from deletion by default
 
 ### Investigating Discrepancies
 
 1. **Check export logs** for `skipped` entries:
+
    ```bash
    grep "skipped" logs/migration.log | jq '.resource_type, .reason'
    ```
 
 2. **Check transform logs** for dependency failures:
+
    ```bash
    grep "required_dependency_missing" logs/migration.log
    ```
 
 3. **Review configuration** in `config.yaml`:
+
    ```yaml
    export:
      skip_dynamic_hosts: true      # Are dynamic hosts being skipped?
@@ -186,6 +209,7 @@ When comparing source and target counts, consider:
    ```
 
 4. **Check state database** for import status:
+
    ```bash
    aap-bridge status --resource-type hosts
    ```
@@ -210,7 +234,12 @@ export:
 
   # Include installer-created default credentials (normally recreated by the target installer)
   skip_credential_names: []
+
+  # Include platform-managed execution environments (normally recreated by the target installer)
+  skip_execution_environment_names: []
 ```
 
 !!! warning "Changing Defaults"
-    The default filters exist for good reasons. Dynamic hosts will be recreated (and potentially duplicated) when inventory sources sync. Smart inventories may not function correctly if their source inventories differ.
+    The default filters exist for good reasons. Dynamic hosts will be recreated (and potentially
+    duplicated) when inventory sources sync. Smart inventories may not function correctly if
+    their source inventories differ.

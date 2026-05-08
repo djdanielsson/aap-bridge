@@ -7,9 +7,9 @@ This guide explains the complete AAP migration process.
 AAP Bridge follows an ETL (Export, Transform, Load) pattern:
 
 ```text
-┌──────────┐    ┌───────────┐    ┌──────────┐    ┌────────┐    ┌─────────────────┐
-│   Prep   │───▶│  Export   │───▶│Transform │───▶│ Import │───▶│ Synchronise │
-└──────────┘    └───────────┘    └──────────┘    └────────┘    └─────────────────┘
+┌──────────┐    ┌──────────┐    ┌───────────┐    ┌────────┐    ┌──────────┐
+│   Prep   │──▶│  Export  │──▶│ Transform │──▶│ Import │──▶│ Validate │
+└──────────┘    └──────────┘    └───────────┘    └────────┘    └──────────┘
 
 ```
 
@@ -54,21 +54,23 @@ aap-bridge export
 
 **Export Order:**
 
-| Order | Resources |
-| --- | --- |
-| 1 | Organizations |
-| 2 | Labels |
-| 3 | Users, Teams |
-| 4 | Credential Types, Credentials |
-| 5 | Execution Environments |
-| 6 | Inventories |
-| 7 | Inventory Sources, Inventory Groups |
-| 8 | Hosts |
-| 9 | Instances, Instance Groups |
-| 10 | Projects |
-| 11 | Job Templates |
-| 12 | Workflow Job Templates |
-| 13 | Schedules |
+| Order | Resources | Notes |
+| --- | --- | --- |
+| 1 | Organizations | Foundation resource |
+| 2 | Labels | |
+| 3 | Users, Teams | Includes team membership and role grants |
+| 4 | Credential Types, Credentials, Credential Input Sources | |
+| 5 | Execution Environments | Default platform EEs are skipped by default |
+| 6 | Inventories | Smart and constructed inventories exported separately |
+| 7 | Inventory Sources | Includes cloud/SCM source configuration |
+| 8 | Inventory Groups | Includes nested group hierarchy |
+| 9 | Hosts | Dynamic hosts skipped by default |
+| 10 | Projects | |
+| 11 | Notification Templates | |
+| 12 | Job Templates | Includes survey spec and notification associations |
+| 13 | Workflow Job Templates | Includes nodes, survey spec, and notification associations |
+| 14 | Schedules | System-job schedules excluded |
+| 15 | Role Definitions | AAP 2.6 DAB RBAC custom role definitions |
 
 **Output Structure:**
 
@@ -130,7 +132,20 @@ aap-bridge import
 
 **Import Features:**
 
-- **Bulk Operations**: Hosts imported 200 at a time
+- **Bulk Operations**: Hosts imported 200 at a time via the AAP bulk API
+- **Host-Group Associations**: Hosts are associated with their groups after bulk import
+- **Inventory Source Sync**: After importing inventory sources, the tool triggers a sync and
+  waits for completion before moving to constructed and smart inventories
+- **Smart Inventory Deferral**: Smart inventories are imported in a dedicated phase after
+  inventory source sync to ensure correct host membership
+- **Survey Specs**: Job template and workflow job template survey specs are posted after
+  template creation
+- **Notification Associations**: Notification template relationships
+  (started/success/error/approvals) are applied after template creation
+- **Nested Groups**: Inventory group parent-child relationships are recreated after all groups
+  are imported
+- **Classic RBAC Translation**: User and team role grants from AAP 2.3–2.5 are translated to
+  the AAP 2.6 DAB RBAC model
 - **Idempotency**: Skips already-migrated resources
 - **Conflict Resolution**: Updates or skips existing resources
 - **Checkpointing**: Can resume from any failure point
@@ -185,25 +200,41 @@ Understanding dependencies is crucial for migration:
 ```text
 Organizations
     ├── Users (member of)
+    │       └── Team memberships
     ├── Teams (belongs to)
+    │       └── Resource role grants
     ├── Credentials (owned by)
     ├── Projects (belongs to)
     └── Inventories (belongs to)
-            ├── Inventory Sources
-            ├── Inventory Groups
-            └── Hosts
+            ├── Inventory Sources → sync → Smart Inventories
+            ├── Inventory Groups (with nested hierarchy)
+            │       └── Hosts (associated after bulk import)
+            └── Constructed Inventories (after inventory source sync)
 
 Credential Types (standalone)
     └── Credentials (uses)
+            └── Credential Input Sources
 
 Execution Environments (standalone)
+
+Notification Templates (org-scoped)
 
 Job Templates
     ├── Project (uses)
     ├── Inventory (uses)
     ├── Credentials (uses)
-    └── Execution Environment (uses)
+    ├── Execution Environment (uses)
+    ├── Survey Spec (sub-resource)
+    └── Notification Associations (started/success/error)
 
+Workflow Job Templates
+    ├── Nodes (embedded, including approval templates)
+    ├── Survey Spec (sub-resource)
+    └── Notification Associations (started/success/error/approvals)
+
+Role Definitions (AAP 2.6 DAB RBAC)
+    ├── Role User Assignments
+    └── Role Team Assignments
 ```
 
 ## Best Practices
