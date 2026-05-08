@@ -126,6 +126,12 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   that a resource is pending deletion is now treated as a skip rather than an error
 - **Instance Groups Exception Scoped to 2.5+**: The instance groups API exception
   handling that was applied to all source versions is now scoped to AAP 2.5+ only
+- **Credential Types – Rerun Idempotency**: Phase 1 reruns now treat "already exists"
+  create responses as a skip by resolving the existing credential type, saving the ID
+  mapping, and marking migration progress as completed
+- **Hosts – Bulk Import Rerun Idempotency**: Phase 2 reruns now skip hosts that already
+  have state mappings and persist host migration progress during bulk import so
+  subsequent runs do not attempt duplicate host creates
 
 ## [0.1.0] - 2025-12-05
 

@@ -48,6 +48,8 @@ in the repository.
 - Import dispatch table corrected for `notification_templates`, `credential_input_sources`,
   `rbac`, and `workflow_job_templates`
 - 400 "pending deletion" responses treated as idempotent skips
+- Credential type reruns now map "already exists" conflicts and mark completed state
+- Host bulk import reruns now skip already-mapped hosts and persist host progress state
 
 ### v0.1.0
 
