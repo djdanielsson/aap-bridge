@@ -58,19 +58,26 @@ aap-bridge export
 | --- | --- | --- |
 | 1 | Organizations | Foundation resource |
 | 2 | Labels | |
-| 3 | Users, Teams | Includes team membership and role grants |
-| 4 | Credential Types, Credentials, Credential Input Sources | |
-| 5 | Execution Environments | Default platform EEs are skipped by default |
-| 6 | Inventories | Smart and constructed inventories exported separately |
-| 7 | Inventory Sources | Includes cloud/SCM source configuration |
-| 8 | Inventory Groups | Includes nested group hierarchy |
-| 9 | Hosts | Dynamic hosts skipped by default |
-| 10 | Projects | |
-| 11 | Notification Templates | |
-| 12 | Job Templates | Includes survey spec and notification associations |
-| 13 | Workflow Job Templates | Includes nodes, survey spec, and notification associations |
-| 14 | Schedules | System-job schedules excluded |
-| 15 | Role Definitions | AAP 2.6 DAB RBAC custom role definitions |
+| 3 | Credential Types | |
+| 4 | Credentials | |
+| 5 | Credential Input Sources | |
+| 6 | Execution Environments | Default platform EEs are skipped by default |
+| 7 | Projects | |
+| 8 | Inventories | Smart and constructed inventories exported separately |
+| 9 | Inventory Sources | Includes cloud/SCM source configuration |
+| 10 | Constructed Inventories | |
+| 11 | Inventory Groups | Includes nested group hierarchy |
+| 12 | Hosts | Dynamic hosts skipped by default |
+| 13 | Notification Templates | |
+| 14 | Job Templates | Includes survey spec and notification associations |
+| 15 | Workflow Job Templates | Includes nodes, survey spec, and notification associations |
+| 16 | System Job Templates | |
+| 17 | Schedules | System-job schedules excluded |
+| 18 | Users | |
+| 19 | Teams | |
+| 20 | Role Definitions | AAP 2.5+ RBAC custom role definitions |
+| 21 | User Role Assignments | |
+| 22 | Team Role Assignments | |
 
 **Output Structure:**
 
@@ -145,7 +152,7 @@ aap-bridge import
 - **Nested Groups**: Inventory group parent-child relationships are recreated after all groups
   are imported
 - **Classic RBAC Translation**: User and team role grants from AAP 2.3–2.5 are translated to
-  the AAP 2.6 DAB RBAC model
+  the AAP 2.5+ RBAC model
 - **Idempotency**: Skips already-migrated resources
 - **Conflict Resolution**: Updates or skips existing resources
 - **Checkpointing**: Can resume from any failure point
@@ -232,7 +239,7 @@ Workflow Job Templates
     ├── Survey Spec (sub-resource)
     └── Notification Associations (started/success/error/approvals)
 
-Role Definitions (AAP 2.6 DAB RBAC)
+Role Definitions (AAP 2.5+ RBAC)
     ├── Role User Assignments
     └── Role Team Assignments
 ```

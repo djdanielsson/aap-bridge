@@ -27,7 +27,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   triggers a sync and waits for completion before proceeding to constructed inventories
   and smart inventories, ensuring those depend on fresh host data
 - **Classic RBAC Migration (Users)**: Direct user resource role grants are exported from
-  `GET /users/{id}/roles/` and applied on the target AAP 2.6 RBAC model
+  `GET /users/{id}/roles/` and applied on the target AAP 2.5+ RBAC model
 - **Classic RBAC Migration (Teams)**: Team resource role grants are exported from
   `GET /teams/{id}/roles/` and applied on the target
 - **`role_definitions` Cleanup**: Custom role definitions are now deleted during the
@@ -50,6 +50,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Export and Transform Order Aligned with Import**: Resource types are now exported
+  and transformed in the same dependency order as the import phase (credential types and
+  credentials before projects; users and teams deferred until after all content objects
+  are in place). The export progress display reflects this order even when parallel
+  export is enabled.
 - **All Migration Paths Marked Fully Supported**: The 2.3 → 2.6, 2.4 → 2.6, and
   2.5 → 2.6 paths are all now marked as fully supported; messaging is standardised
 - **`inventory_sources` Re-ordered**: Inventory sources are now imported before

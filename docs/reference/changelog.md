@@ -26,6 +26,12 @@ in the repository.
 - `skip_execution_environment_names` configuration option (defaults exclude platform-managed EEs)
 - MkDocs GitHub Actions deployment workflow
 
+**Improvements:**
+
+- Export and transform phase order now matches the import dependency order (credential
+  types and credentials before projects; users and teams after all content objects).
+  Export progress display reflects this order even with parallel export enabled.
+
 **Bug Fixes:**
 
 - Credential deduplication: same-name/different-type and non-unique name+org+type cases
