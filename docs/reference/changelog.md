@@ -20,7 +20,9 @@ in the repository.
 - Constructed inventory `input_inventories` exported and re-linked on target
 - Automatic inventory source sync after import (with configurable timeout/polling)
 - Smart inventory import deferred until after inventory source sync
-- Classic RBAC migration for user and team resource role grants
+- Classic RBAC migration for user and team resource role grants to the target AAP 2.5+ RBAC model
+- For AAP 2.5+ sources, new-model RBAC migration is fully implemented and functional for
+  `role_definitions`, `role_user_assignments`, and `role_team_assignments`
 - `role_definitions` included in cleanup phase
 - `skip_credential_names` configuration option (defaults exclude installer-created credentials)
 - `skip_execution_environment_names` configuration option (defaults exclude platform-managed EEs)
@@ -47,6 +49,7 @@ in the repository.
 - Managed execution environments always protected from deletion (including in `--full` mode)
 - Import dispatch table corrected for `notification_templates`, `credential_input_sources`,
   `rbac`, and `workflow_job_templates`
+- Instance group RBAC API exception handling is now scoped to AAP 2.5+ sources only
 - 400 "pending deletion" responses treated as idempotent skips
 - Credential type reruns now map "already exists" conflicts and mark completed state
 - Host bulk import reruns now skip already-mapped hosts and persist host progress state

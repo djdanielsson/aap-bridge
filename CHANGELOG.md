@@ -29,7 +29,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - **Classic RBAC Migration (Users)**: Direct user resource role grants are exported from
   `GET /users/{id}/roles/` and applied on the target AAP 2.5+ RBAC model
 - **Classic RBAC Migration (Teams)**: Team resource role grants are exported from
-  `GET /teams/{id}/roles/` and applied on the target
+  `GET /teams/{id}/roles/` and applied on the target AAP 2.5+ RBAC model
+- **AAP 2.5+ RBAC Fully Implemented (2.5+ Sources)**: New-model RBAC resources are
+  fully migrated and functional for AAP 2.5+ sources, including `role_definitions`,
+  `role_user_assignments`, and `role_team_assignments`
 - **`role_definitions` Cleanup**: Custom role definitions are now deleted during the
   cleanup phase; system-managed roles that return 400 are gracefully skipped
 - **`skip_credential_names` Configuration**: New `export.skip_credential_names` option
