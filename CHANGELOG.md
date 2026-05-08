@@ -124,8 +124,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   dispatching to `WorkflowImporter`; fixed so the importer is always called
 - **Client – 400 Pending Deletion Treated as Idempotent**: A `400` response indicating
   that a resource is pending deletion is now treated as a skip rather than an error
-- **Instance Groups Exception Scoped to 2.5**: The instance groups API exception
-  handling that was applied to all source versions is now scoped to AAP 2.5 only
+- **Instance Groups Exception Scoped to 2.5+**: The instance groups API exception
+  handling that was applied to all source versions is now scoped to AAP 2.5+ only
 
 ## [0.1.0] - 2025-12-05
 
