@@ -3,7 +3,11 @@
        init-env setup version venv install-editable all \
        build build-api build-ui build-all up up-dev down shell shell-engine logs \
        c-test c-lint c-format c-typecheck c-check \
-       web-install web-dev web-build serve populate
+       web-install web-dev web-build serve populate \
+       build-builder build-aap-bases build-aap build-aap-all \
+       push-aap pull-aap list-golden \
+       run-pair stop-pair reset-pair destroy-pair destroy-all \
+       test-bridge test-all status shell-src shell-tgt
 
 .DEFAULT_GOAL := help
 
@@ -37,6 +41,15 @@ help: ## Show this help message
 	@echo "    make up                             # Start db + engine + ui"
 	@echo "    make up-dev                         # Start db + bridge (CLI dev)"
 	@echo "    make c-check                        # Run checks inside container"
+	@echo ""
+	@echo "  Integration testing:"
+	@echo "    make build-builder                 # Build ansible runner (once)"
+	@echo "    make build-aap-bases               # Build UBI base images (once)"
+	@echo "    make build-aap VERSION=2.4         # Build AAP golden image (~45 min)"
+	@echo "    make run-pair SOURCE=2.3 TARGET=2.6"
+	@echo "    make test-bridge SOURCE=2.3 TARGET=2.6"
+	@echo "    make test-all                      # Test all versions → 2.6"
+	@echo "    make reset-pair SOURCE=2.3 TARGET=2.6   # Reset instantly"
 	@echo ""
 	@echo "  All targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -198,3 +211,152 @@ serve: ## Start FastAPI API server (requires pip install '.[api]')
 
 populate: ## Populate AAP instance with test data (HOST=... TOKEN=... SIZE=small)
 	python3 scripts/populate_test_data.py --host $(HOST) --token $(TOKEN) --size $(SIZE)
+
+# ===========================================================================
+#  Integration testing — AAP golden images and test pairs (requires podman)
+# ===========================================================================
+
+BUILDER_IMAGE  := localhost/aap-bridge-builder:latest
+
+SOURCE   ?= 2.3
+TARGET   ?= 2.6
+VERSION  ?= 2.3
+REGISTRY ?= localhost
+V        ?= 0
+DEBUG    ?= 0
+
+VERBOSITY := $(if $(filter 1,$(V)),-v,$(if $(filter 2,$(V)),-vv,$(if $(filter 3,$(V)),-vvv,$(if $(filter 4,$(V)),-vvvv,))))
+DEBUG_ARGS := $(if $(filter 1,$(DEBUG)),-e secure_logging=false,)
+
+PODMAN_SOCK := $(shell echo $${XDG_RUNTIME_DIR}/podman/podman.sock)
+PROJECT_DIR := $(shell pwd)
+TESTING_DIR := $(PROJECT_DIR)/tests/integration
+VAULT_PASS_FILE := $(TESTING_DIR)/.vault_pass
+VAULT_VARS_FILE := $(TESTING_DIR)/inventory/group_vars/vault.yml
+
+ifneq (,$(wildcard $(VAULT_PASS_FILE)))
+  VAULT_ARGS := --vault-password-file $(VAULT_PASS_FILE)
+  ifneq (,$(wildcard $(VAULT_VARS_FILE)))
+    VAULT_ARGS += -e @$(VAULT_VARS_FILE)
+  endif
+endif
+
+define run-builder
+	podman run --rm \
+		-v $(PODMAN_SOCK):/run/podman/podman.sock \
+		-v $(TESTING_DIR):$(TESTING_DIR) \
+		-w $(TESTING_DIR) \
+		--network host \
+		--security-opt label=disable \
+		$(if $(RHSM_USER),-e RHSM_USER=$(RHSM_USER)) \
+		$(if $(RHSM_PASS),-e RHSM_PASS) \
+		$(if $(RH_TOKEN),-e RH_TOKEN) \
+		$(BUILDER_IMAGE) $(VERBOSITY) $(DEBUG_ARGS) $(VAULT_ARGS)
+endef
+
+build-builder: ## Build the ansible builder image
+	podman build \
+		-t $(BUILDER_IMAGE) \
+		-f tests/integration/Containerfile.builder \
+		tests/integration/
+
+build-aap-bases: ## Build UBI base images for AAP containers
+	$(run-builder) playbooks/build-base-images.yml
+
+build-aap: ## Build AAP golden image (VERSION=2.4)
+	@sudo sysctl -w kernel.keys.maxkeys=5000 2>/dev/null || true
+	$(run-builder) playbooks/build-instance.yml \
+		-e aap_version=$(VERSION)
+
+build-aap-all: ## Build golden images for ALL versions
+	@for v in 1.0 1.1 1.2 2.0 2.1 2.2 2.3 2.4 2.5 2.6; do \
+		echo "=== Building AAP $$v ==="; \
+		$(MAKE) build-aap VERSION=$$v || echo "WARN: AAP $$v build failed (may be best-effort)"; \
+	done
+
+push-aap: ## Push golden image to registry (VERSION=2.4 REGISTRY=quay.io/myorg)
+	$(run-builder) playbooks/push-image.yml \
+		-e aap_version=$(VERSION) \
+		-e image_registry=$(REGISTRY)
+
+pull-aap: ## Pull golden image from registry (VERSION=2.4 REGISTRY=quay.io/myorg)
+	$(run-builder) playbooks/pull-image.yml \
+		-e aap_version=$(VERSION) \
+		-e image_registry=$(REGISTRY)
+
+list-golden: ## List all golden images
+	@podman images --filter 'reference=*aap-golden-*' \
+		--format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.Created}}'
+
+run-pair: ## Start AAP pair from golden images (SOURCE=2.3 TARGET=2.6)
+	$(run-builder) playbooks/run-pair.yml \
+		-e source_version=$(SOURCE) \
+		-e target_version=$(TARGET)
+
+stop-pair: ## Stop AAP pair containers (SOURCE=2.3 TARGET=2.6)
+	-podman stop aap-$(subst .,,$(SOURCE))-src aap-$(subst .,,$(TARGET))-tgt
+
+reset-pair: ## Reset pair to clean state (SOURCE=2.3 TARGET=2.6)
+	$(run-builder) playbooks/reset-pair.yml \
+		-e source_version=$(SOURCE) \
+		-e target_version=$(TARGET)
+
+destroy-pair: ## Remove pair containers and network (SOURCE=2.3 TARGET=2.6)
+	$(run-builder) playbooks/destroy-pair.yml \
+		-e source_version=$(SOURCE) \
+		-e target_version=$(TARGET)
+
+destroy-all: ## Remove ALL test containers, images, and networks
+	$(run-builder) playbooks/destroy-all.yml
+
+status: ## Show all test containers and golden images
+	$(run-builder) playbooks/status.yml
+
+test-bridge: ## Run aap-bridge against pair (dry-run) (SOURCE=2.3 TARGET=2.6)
+	@PAIR_ID="$(subst .,,$(SOURCE))-to-$(subst .,,$(TARGET))"; \
+	ENV_FILE="tests/integration/generated/pairs/$$PAIR_ID/.env"; \
+	if [ ! -f "$$ENV_FILE" ]; then \
+		echo "Error: No config at $$ENV_FILE. Run 'make run-pair' first."; \
+		exit 1; \
+	fi; \
+	echo "Using config: $$ENV_FILE"; \
+	podman exec --env-file $$ENV_FILE aap-bridge-bridge-1 \
+		aap-bridge migrate full --dry-run
+
+test-all: ## Run migration test for all source versions → 2.6
+	@PASS=""; FAIL=""; SKIP=""; \
+	for v in 1.0 1.1 1.2 2.0 2.1 2.2 2.3 2.4 2.5; do \
+		echo ""; \
+		echo "============================================================"; \
+		echo "  Testing migration: AAP $$v → 2.6"; \
+		echo "============================================================"; \
+		if ! podman image exists localhost/aap-golden-$$v:latest 2>/dev/null; then \
+			echo "SKIP: No golden image for AAP $$v"; \
+			SKIP="$$SKIP $$v"; \
+			continue; \
+		fi; \
+		$(MAKE) run-pair SOURCE=$$v TARGET=2.6 || { echo "FAIL: Could not start pair $$v → 2.6"; FAIL="$$FAIL $$v"; continue; }; \
+		if $(MAKE) test-bridge SOURCE=$$v TARGET=2.6; then \
+			echo "PASS: AAP $$v → 2.6"; \
+			PASS="$$PASS $$v"; \
+		else \
+			echo "FAIL: AAP $$v → 2.6"; \
+			FAIL="$$FAIL $$v"; \
+		fi; \
+		$(MAKE) destroy-pair SOURCE=$$v TARGET=2.6; \
+	done; \
+	echo ""; \
+	echo "============================================================"; \
+	echo "  Results"; \
+	echo "============================================================"; \
+	echo "  PASS:$$PASS"; \
+	echo "  FAIL:$$FAIL"; \
+	echo "  SKIP:$$SKIP"; \
+	echo "============================================================"; \
+	[ -z "$$FAIL" ]
+
+shell-src: ## Shell into source AAP container (SOURCE=2.3)
+	podman exec -it aap-$(subst .,,$(SOURCE))-src /bin/bash
+
+shell-tgt: ## Shell into target AAP container (TARGET=2.6)
+	podman exec -it aap-$(subst .,,$(TARGET))-tgt /bin/bash
