@@ -1,15 +1,27 @@
 # Installation
 
-## Prerequisites
+AAP Bridge can be run three ways. Choose whichever fits your environment:
 
-Before installing AAP Bridge, ensure you have:
+| Mode | What you need | Best for |
+| --- | --- | --- |
+| **Local** | Python 3.12, PostgreSQL | Direct host install, no containers |
+| **Container CLI** | podman + make | Isolated CLI/TUI in a container |
+| **Web UI** | podman + make | Browser-based migration interface |
+
+---
+
+## Local Installation
+
+Run AAP Bridge directly on the host with no containers.
+
+### Prerequisites
 
 - **Python 3.12** or higher
 - **PostgreSQL** database (for state management)
 - **uv** package manager (recommended) or pip
 - Network access to source and target AAP instances
 
-### Hardware Requirements
+#### Hardware Requirements
 
 | Migration Size | RAM | Notes |
 | --- | --- | --- |
@@ -17,57 +29,31 @@ Before installing AAP Bridge, ensure you have:
 | 10,000 - 50,000 hosts | 8GB | Recommended |
 | 50,000+ hosts | 16GB+ | Large-scale migrations |
 
-## Installation Methods
-
-### Using uv (Recommended)
+### Setup
 
 ```bash
 # Clone the repository
 git clone https://github.com/redhat-cop/aap-bridge.git
 cd aap-bridge
 
-# Create virtual environment
-uv venv --seed --python 3.12
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-uv sync
-
-```
-
-### Using pip
-
-```bash
-# Clone the repository
-git clone https://github.com/redhat-cop/aap-bridge.git
-cd aap-bridge
-
-# Create virtual environment
-python3.12 -m venv .venv
-source .venv/bin/activate
-
-# Install in editable mode
-pip install -e .
-
-```
-
-### Development Installation
-
-For contributing or development:
-
-```bash
-# Clone and setup
-git clone https://github.com/redhat-cop/aap-bridge.git
-cd aap-bridge
-
-# Use make for complete setup
+# Complete setup (venv + deps + editable install + .env)
 make setup
 
+# Activate the virtual environment
+source .venv/bin/activate
 ```
 
-This installs all development dependencies including testing and linting tools.
+Or step by step:
 
-## Database Setup
+```bash
+make venv                 # Create Python 3.12 venv
+source .venv/bin/activate
+make install-dev          # Install all dependencies
+make install-editable     # Install aap-bridge in editable mode
+make init-env             # Create .env from .env.example
+```
+
+### Database Setup
 
 AAP Bridge requires a PostgreSQL database for state management:
 
@@ -79,43 +65,148 @@ psql -c "GRANT ALL PRIVILEGES ON DATABASE aap_migration TO aap_migration_user;"
 
 # For PostgreSQL 15+, grant schema permissions
 psql -d aap_migration -c "GRANT ALL ON SCHEMA public TO aap_migration_user;"
+```
 
+Edit `.env` with your database connection and AAP instance details:
+
+```bash
+MIGRATION_STATE_DB_PATH=postgresql://aap_migration_user:your_secure_password@localhost:5432/aap_migration
+SOURCE__URL=https://source-aap.example.com/api/v2
+SOURCE__TOKEN=your_source_token
+TARGET__URL=https://target-aap.example.com/api/controller/v2
+TARGET__TOKEN=your_target_token
 ```
 
 !!! note
     The tool automatically creates the necessary tables on first run.
 
-## Container Deployment
-
-Run AAP Bridge in a container for isolated, reproducible environments:
+### Verify
 
 ```bash
+aap-bridge --version
+aap-bridge --help
+```
+
+### Run
+
+```bash
+# Interactive TUI menu
+aap-bridge
+
+# Or run a migration directly
+aap-bridge migrate full --config config/config.yaml
+```
+
+---
+
+## Container CLI
+
+Run the CLI/TUI inside a container. PostgreSQL is included — no manual database setup needed.
+
+### Prerequisites
+
+- **podman** (or docker) with compose support
+- **make**
+
+### Setup
+
+```bash
+git clone https://github.com/redhat-cop/aap-bridge.git
+cd aap-bridge
+
 # Build the container image
 make build
 
-# Start with docker-compose / podman-compose
+# Start bridge + postgres
 make up-dev
 
 # Shell into the running container
 make shell
-
 ```
 
-## Verify Installation
+### Verify
+
+Inside the container:
 
 ```bash
-# Check version
-aap-bridge --version
-
-# Show help
 aap-bridge --help
-
-# Validate configuration
-aap-bridge config validate
-
 ```
+
+### Run
+
+Inside the container:
+
+```bash
+# Interactive TUI menu
+aap-bridge
+
+# Or run a migration directly
+aap-bridge migrate full --dry-run
+```
+
+### Useful Commands
+
+| Command | Description |
+| --- | --- |
+| `make up-dev` | Start db + bridge container |
+| `make shell` | Shell into bridge container |
+| `make down` | Stop all containers |
+| `make logs` | Tail container logs |
+| `make c-test` | Run unit tests inside container |
+| `make c-check` | Run lint + typecheck + test inside container |
+
+---
+
+## Web UI
+
+Browser-based interface for managing connections, previewing migrations, and streaming logs in real time. Runs as 3 containers (PostgreSQL, API engine, nginx UI).
+
+### Prerequisites
+
+- **podman** (or docker) with compose support
+- **make**
+
+### Setup
+
+```bash
+git clone https://github.com/redhat-cop/aap-bridge.git
+cd aap-bridge
+
+# Build engine + UI container images
+make build-all
+
+# Start all 3 containers
+make up
+```
+
+### Verify
+
+Open [http://localhost:8080](http://localhost:8080) in a browser.
+
+### Containers
+
+| Container | Port | Description |
+| --- | --- | --- |
+| **db** | 15432 | PostgreSQL 15 state database |
+| **engine** | 8000 | FastAPI API server + migration engine |
+| **ui** | 8080 | nginx serving React UI + API proxy |
+
+### Useful Commands
+
+| Command | Description |
+| --- | --- |
+| `make up` | Start db + engine + ui |
+| `make down` | Stop all containers |
+| `make logs` | Tail all container logs |
+| `make shell-engine` | Shell into engine container |
+
+See the [Web UI guide](../user-guide/web-ui.md) for full documentation of the interface.
+
+---
 
 ## Next Steps
 
-- [Quick Start](quickstart.md) - Get up and running in 5 minutes
+- [Quick Start](quickstart.md) - Run your first migration in 5 minutes
 - [Configuration](configuration.md) - Configure your environment
+- [CLI Reference](../user-guide/cli-reference.md) - Full command reference
+- [Web UI](../user-guide/web-ui.md) - Browser interface guide

@@ -6,12 +6,12 @@ migrations (e.g., 80,000+ hosts).
 
 ## Key Features
 
+- **Three Deployment Modes** - Run locally on the host, as a containerized CLI,
+  or as a full Web UI with 3-container deployment
 - **Web UI** - PatternFly-based web interface for managing connections, browsing
   resources, and running migrations with real-time log streaming
 - **CLI & TUI** - Full command-line and interactive terminal menu for all
   operations
-- **3-Container Deployment** - Engine (API + migration), UI (nginx), and
-  PostgreSQL deployable via podman-compose
 - **Bulk Operations** - Leverages AAP bulk APIs for high-performance migrations
 - **State Management** - PostgreSQL-backed state tracking with checkpoint/resume
   capability
@@ -52,20 +52,24 @@ migrations (e.g., 80,000+ hosts).
 
 ## Architecture Overview
 
-AAP Bridge follows an ETL (Export, Transform, Load) architecture with a web UI
-and CLI interface, deployed as 3 containers:
+AAP Bridge follows an ETL (Export, Transform, Load) architecture. It can be used
+via CLI/TUI directly or through a browser-based Web UI:
 
 ```mermaid
 graph LR
-    U[Browser] -->|HTTP/WS| UI[UI Container<br/>nginx + React]
-    UI -->|Proxy /api /ws| E[Engine Container<br/>FastAPI + ETL]
-    E -->|API calls| A[Source AAP<br/>2.3/2.4]
-    E -->|API calls| C[Target AAP<br/>2.6+]
-    E <-->|State| D[(PostgreSQL)]
+    T[Terminal] -->|CLI / TUI| B[AAP Bridge<br/>ETL Engine]
+    U[Browser] -->|HTTP/WS| UI[nginx + React]
+    UI -->|Proxy| API[FastAPI]
+    API --> B
+    B -->|API calls| A[Source AAP]
+    B -->|API calls| C[Target AAP]
+    B <-->|State| D[(PostgreSQL)]
 
+    style T fill:#fff,stroke:#333
     style U fill:#fff,stroke:#333
     style UI fill:#e1f5ff,stroke:#01579b,stroke-width:2px
-    style E fill:#fff9c4,stroke:#f57f17,stroke-width:3px
+    style API fill:#e1f5ff,stroke:#01579b,stroke-width:2px
+    style B fill:#fff9c4,stroke:#f57f17,stroke-width:3px
     style A fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
     style C fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
     style D fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
@@ -73,6 +77,8 @@ graph LR
 
 **Components:**
 
+- **CLI / TUI** - Command-line and interactive terminal menu (works locally or
+  in a container)
 - **Web UI** - React/PatternFly browser interface with connection management,
   object browser, migration wizard, and real-time log streaming
 - **API Layer** - FastAPI REST + WebSocket server exposing the migration engine
@@ -80,7 +86,6 @@ graph LR
   Vault
 - **Migration Layer** - ETL pipeline with exporters, transformers, and importers
 - **State Management** - Database-backed progress tracking and ID mapping
-- **CLI / TUI** - Command-line and interactive terminal menu
 
 ## Migration Order
 

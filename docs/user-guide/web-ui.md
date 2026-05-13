@@ -4,25 +4,10 @@ AAP Bridge includes a browser-based interface built with React and PatternFly 5.
 It provides the same capabilities as the CLI through a graphical interface with
 real-time log streaming.
 
-## Starting the Web UI
+## Getting Started
 
-### Container Deployment (Recommended)
-
-```bash
-# Build and start all 3 containers
-make build-all
-make up
-
-# Access at http://localhost:8080
-```
-
-This starts:
-
-| Container | Port | Network | Description |
-| --- | --- | --- | --- |
-| **db** | 15432 | bridge | PostgreSQL 15 state database |
-| **engine** | 8000 | host | FastAPI API server + migration engine |
-| **ui** | 8080 | host | nginx serving React UI + API proxy |
+See [Installation — Web UI](../getting-started/installation.md#web-ui) for
+setup instructions. Once running, open [http://localhost:8080](http://localhost:8080).
 
 > **Networking note:** In the default `compose.yml`, the engine and UI containers
 > both use `network_mode: host` so they share the host network namespace. This is
