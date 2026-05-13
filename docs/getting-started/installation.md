@@ -85,6 +85,22 @@ psql -d aap_migration -c "GRANT ALL ON SCHEMA public TO aap_migration_user;"
 !!! note
     The tool automatically creates the necessary tables on first run.
 
+## Container Deployment
+
+Run AAP Bridge in a container for isolated, reproducible environments:
+
+```bash
+# Build the container image
+make build
+
+# Start with docker-compose / podman-compose
+make up-dev
+
+# Shell into the running container
+make shell
+
+```
+
 ## Verify Installation
 
 ```bash

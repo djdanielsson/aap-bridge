@@ -9,7 +9,24 @@ management for checkpointing and idempotency.
 
 ```mermaid
 flowchart TB
+    subgraph UI["Web UI (React + PatternFly)"]
+        Dashboard[Connections]
+        Operations[Operations]
+        MigratePage[Migrate]
+        Browser[Object Browser]
+        JobsPage[Jobs]
+    end
+
+    subgraph API["API Layer (FastAPI)"]
+        ConnRouter[/api/connections]
+        OpsRouter[/api/connections/.../cleanup export]
+        MigRouter[/api/migrate/preview run]
+        JobsRouter[/api/jobs]
+        WSRouter[/ws/jobs/.../logs]
+    end
+
     subgraph CLI["CLI Layer"]
+        serve[serve]
         prep[prep]
         export[export]
         transform[transform]
@@ -37,6 +54,10 @@ flowchart TB
         PostgreSQL[(PostgreSQL)]
     end
 
+    UI --> API
+    serve --> API
+    API --> Migration
+
     prep --> SchemaComparator
     export --> Exporter
     transform --> Transformer
@@ -59,10 +80,29 @@ flowchart TB
 
 ```text
 src/aap_migration/
+├── api/                    # FastAPI web API
+│   ├── app.py             # App factory, CORS, lifespan
+│   ├── models.py          # Connection + Job SQLAlchemy models
+│   ├── schemas.py         # Pydantic request/response DTOs
+│   ├── dependencies.py    # Dependency injection
+│   ├── websocket.py       # WebSocket log streaming
+│   ├── routers/           # API endpoint routers
+│   │   ├── connections.py # CRUD + test
+│   │   ├── resources.py   # Object browsing
+│   │   ├── operations.py  # Cleanup, export
+│   │   ├── migration.py   # Preview, run
+│   │   └── jobs.py        # Job tracking
+│   └── services/          # Business logic
+│       ├── connection_service.py
+│       ├── job_service.py
+│       ├── operation_service.py
+│       ├── migration_service.py
+│       └── platform_adapter.py
 ├── cli/                    # Command-line interface
 │   ├── main.py            # Entry point, command groups
 │   ├── menu.py            # Interactive menu
 │   ├── commands/          # Individual commands
+│   │   ├── serve.py       # Start API server
 │   │   ├── prep.py
 │   │   ├── export_import.py
 │   │   ├── cleanup.py
@@ -91,6 +131,20 @@ src/aap_migration/
 └── utils/                 # Utilities
     ├── logging.py
     └── idempotency.py
+
+web/                        # React frontend (PatternFly 5)
+├── src/
+│   ├── api/client.ts      # API client + WebSocket helper
+│   ├── pages/             # Dashboard, Operations, Migrate,
+│   │                      #   ObjectBrowser, Jobs
+│   ├── components/        # ConnectionForm, LogViewer,
+│   │                      #   MigrationPreview, ResourceTable
+│   └── types/             # TypeScript interfaces
+├── package.json
+└── vite.config.ts
+
+deploy/
+└── nginx.conf              # Reverse proxy config for UI container
 
 ```
 

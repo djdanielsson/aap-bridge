@@ -1,0 +1,72 @@
+services:
+  db:
+    image: docker.io/library/postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aap_migration_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-redhat123!}
+      POSTGRES_DB: ${POSTGRES_DB:-aap_migration}
+    ports:
+      - "15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aap_migration_user} -d ${POSTGRES_DB:-aap_migration}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  bridge:
+    build:
+      context: .
+      dockerfile: Containerfile.dev
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MIGRATION_STATE_DB_PATH: "postgresql://${POSTGRES_USER:-aap_migration_user}:${POSTGRES_PASSWORD:-redhat123!}@db:5432/${POSTGRES_DB:-aap_migration}"
+      AAP_BRIDGE_CONFIG: /app/config/config.yaml
+      AAP_BRIDGE_LOG_LEVEL: INFO
+      SOURCE__VERIFY_SSL: "false"
+      TARGET__VERIFY_SSL: "false"
+    extra_hosts:
+      - "host.containers.internal:host-gateway"
+    security_opt:
+      - label=disable
+    volumes:
+      - ./config:/app/config:ro
+      - ./exports:/app/exports
+      - ./reports:/app/reports
+      - bridge-logs:/app/logs
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+      - ./pytest.ini:/app/pytest.ini:ro
+    working_dir: /app
+    entrypoint: ["sleep", "infinity"]
+
+  engine:
+    build:
+      context: .
+      dockerfile: Containerfile
+      target: api
+    depends_on:
+      db:
+        condition: service_healthy
+    network_mode: host
+    environment:
+      MIGRATION_STATE_DB_PATH: "postgresql://${POSTGRES_USER:-aap_migration_user}:${POSTGRES_PASSWORD:-redhat123!}@localhost:15432/${POSTGRES_DB:-aap_migration}"
+      AAP_BRIDGE_LOG_LEVEL: INFO
+    security_opt:
+      - label=disable
+
+  ui:
+    build:
+      context: .
+      dockerfile: Containerfile.ui
+    depends_on:
+      - engine
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
+  bridge-logs:

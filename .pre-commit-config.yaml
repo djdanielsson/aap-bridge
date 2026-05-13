@@ -1,0 +1,55 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-toml
+      - id: check-json
+        exclude: ^web/
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: debug-statements
+      - id: detect-private-key
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: mixed-line-ending
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.12
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  # TODO: mypy currently fails on existing code — fix tracked in a follow-up PR
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        verbose: true
+        additional_dependencies:
+          - pydantic>=2.10.6
+          - pydantic-settings>=2.7.0
+          - types-PyYAML
+          - types-requests
+          - types-python-dateutil
+          - types-aiofiles
+          - types-psutil
+        args: [--ignore-missing-imports]
+        pass_filenames: false
+        entry: mypy src/
+        stages: [manual]
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.33.0
+    hooks:
+      - id: check-github-workflows
