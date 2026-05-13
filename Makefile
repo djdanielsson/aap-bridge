@@ -1,8 +1,9 @@
 .PHONY: help install install-dev clean format lint typecheck test test-unit test-integration \
        test-performance test-cov test-watch check pre-commit docs docs-serve run-example \
        init-env setup version venv install-editable all \
-       build up up-dev down shell logs \
-       c-test c-lint c-format c-typecheck c-check
+       build build-api build-ui build-all up up-dev down shell shell-engine logs \
+       c-test c-lint c-format c-typecheck c-check \
+       web-install web-dev web-build serve populate
 
 .DEFAULT_GOAL := help
 
@@ -32,8 +33,9 @@ help: ## Show this help message
 	@echo "    make docs-serve                    # Serve docs locally"
 	@echo ""
 	@echo "  Container deployment:"
-	@echo "    make build && make up              # Build and start app + postgres"
-	@echo "    make up                             # Start db + bridge"
+	@echo "    make build-all && make up           # Build and start all containers"
+	@echo "    make up                             # Start db + engine + ui"
+	@echo "    make up-dev                         # Start db + bridge (CLI dev)"
 	@echo "    make c-check                        # Run checks inside container"
 	@echo ""
 	@echo "  All targets:"
@@ -127,6 +129,11 @@ all: check docs ## Run all checks and build docs
 COMPOSE        := podman compose
 BRIDGE_SVC     := bridge
 BRIDGE_IMAGE   := localhost/aap-bridge:latest
+UI_IMAGE       := localhost/aap-bridge-ui:latest
+
+HOST     ?= https://localhost:10443
+TOKEN    ?=
+SIZE     ?= small
 
 define run-bridge
 	$(COMPOSE) exec $(BRIDGE_SVC)
@@ -136,8 +143,16 @@ build: ## Build aap-bridge container image (base + dev)
 	podman build -t $(BRIDGE_IMAGE) --target base .
 	podman build -t $(BRIDGE_IMAGE)-dev -f Containerfile.dev .
 
-up: ## Start db + bridge
-	$(COMPOSE) up -d
+build-api: ## Build engine+API container image
+	podman build -t $(BRIDGE_IMAGE)-api --target api .
+
+build-ui: ## Build UI container image
+	podman build -t $(UI_IMAGE) -f Containerfile.ui .
+
+build-all: build-api build-ui ## Build engine + UI container images
+
+up: ## Start db + engine + ui (web interface)
+	$(COMPOSE) up -d db engine ui
 
 up-dev: ## Start db + bridge (CLI dev container)
 	$(COMPOSE) up -d db bridge
@@ -147,6 +162,9 @@ down: ## Stop all containers
 
 shell: ## Shell into bridge container
 	$(COMPOSE) exec $(BRIDGE_SVC) /bin/bash
+
+shell-engine: ## Shell into engine container
+	$(COMPOSE) exec engine /bin/bash
 
 logs: ## Tail all container logs
 	$(COMPOSE) logs -f
@@ -165,3 +183,18 @@ c-typecheck: ## Run mypy inside bridge container
 	$(run-bridge) python3.12 -m mypy src/
 
 c-check: c-lint c-typecheck c-test ## Run all checks inside bridge container
+
+web-install: ## Install frontend dependencies
+	cd web && npm ci
+
+web-dev: ## Start Vite dev server (proxies API to localhost:8000)
+	cd web && npm run dev
+
+web-build: ## Build frontend for production
+	cd web && npm run build
+
+serve: ## Start FastAPI API server (requires pip install '.[api]')
+	aap-bridge serve --host 0.0.0.0 --port 8000
+
+populate: ## Populate AAP instance with test data (HOST=... TOKEN=... SIZE=small)
+	python3 scripts/populate_test_data.py --host $(HOST) --token $(TOKEN) --size $(SIZE)

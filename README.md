@@ -431,6 +431,8 @@ For security concerns and vulnerability reporting, please see [SECURITY.md](SECU
 
 ## Acknowledgments
 
+- **Web UI**: Based on the [Ansible Automation Workbench](https://github.com/rflorenc/ansible-automation-workbench) by [Ricardo Lourenco](https://github.com/rflorenc)
+
 Built following best practices from:
 
 - Red Hat AAP documentation
