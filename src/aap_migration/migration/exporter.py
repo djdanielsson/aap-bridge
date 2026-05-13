@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from aap_migration.client.aap_source_client import AAPSourceClient
-from aap_migration.client.exceptions import APIError
+from aap_migration.client.exceptions import APIError, NotFoundError
 from aap_migration.config import (
     PerformanceConfig,
     normalized_credential_skip_names,
@@ -402,6 +402,17 @@ class ResourceExporter:
                     # the preferred method for performance.
 
                     # Break retry loop on success
+                    break
+
+                except NotFoundError:
+                    logger.info(
+                        "export_endpoint_not_found",
+                        resource_type=resource_type,
+                        page=page,
+                        total_exported_so_far=total_fetched,
+                        message="Endpoint does not exist on source — skipping resource type.",
+                    )
+                    export_stopped_early = True
                     break
 
                 except APIError as e:
@@ -854,7 +865,9 @@ class InventoryExporter(ResourceExporter):
         )
         self._cache_loaded = True
 
-    async def _fetch_constructed_input_inventory_ids(self, constructed_inventory_id: int) -> list[int]:
+    async def _fetch_constructed_input_inventory_ids(
+        self, constructed_inventory_id: int
+    ) -> list[int]:
         """GET ``inventories/<id>/input_inventories/`` and return input inventory PKs in order.
 
         The inventory list/detail response does not include a top-level ``input_inventories``

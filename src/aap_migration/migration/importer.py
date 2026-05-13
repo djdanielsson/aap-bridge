@@ -351,7 +351,6 @@ class ResourceImporter:
             )
 
             if is_already_exists:
-                # Treat as conflict - resource already exists (400 with "already exists")
                 logger.warning(
                     "resource_already_exists",
                     resource_type=resource_type,
@@ -359,17 +358,23 @@ class ResourceImporter:
                     error=str(e),
                 )
 
-                # Try to resolve conflict
                 existing = await self._handle_conflict(resource_type, source_id, data)
                 if existing:
                     self.stats["conflict_count"] += 1
                     return existing
                 else:
-                    self.stats["error_count"] += 1
-                    self.state.mark_failed(
+                    self.stats["skipped_count"] += 1
+                    self.state.mark_completed(
                         resource_type=resource_type,
                         source_id=source_id,
-                        error_message=f"Already exists ({type(e).__name__}): {str(e)}",
+                        target_id=0,
+                        target_name=data.get("name", ""),
+                    )
+                    logger.info(
+                        "resource_skipped_exists",
+                        resource_type=resource_type,
+                        source_id=source_id,
+                        source_name=data.get("name"),
                     )
                     return None
             else:
@@ -1299,9 +1304,7 @@ class UserImporter(ResourceImporter):
             skipped_unmapped=skipped_unmapped,
         )
 
-    async def sync_team_memberships_for_existing_users(
-        self, users: list[dict[str, Any]]
-    ) -> None:
+    async def sync_team_memberships_for_existing_users(self, users: list[dict[str, Any]]) -> None:
         """Sync memberships for users skipped by create/update import path.
 
         Import pre-check may detect users already existing in target and skip
@@ -1378,7 +1381,9 @@ class UserImporter(ResourceImporter):
             # Team memberships are exported separately from user fields.
             # Keep them for post-create association calls, but do not include in create payload.
             team_source_ids = [
-                int(team_id) for team_id in (data.pop("_team_source_ids", []) or []) if team_id is not None
+                int(team_id)
+                for team_id in (data.pop("_team_source_ids", []) or [])
+                if team_id is not None
             ]
 
             # Remove password-related fields (cannot be migrated)
@@ -1434,7 +1439,7 @@ class UserImporter(ResourceImporter):
 
             return result
 
-        except ConflictError as e:
+        except ConflictError:
             # Handle conflict (user already exists)
             result = await self._handle_conflict(resource_type, source_id, data)
             if result:
@@ -1447,6 +1452,53 @@ class UserImporter(ResourceImporter):
                         source_team_ids=team_source_ids,
                     )
             return result
+
+        except APIError as e:
+            error_str = str(e).lower()
+            is_already_exists = "already exists" in error_str or (
+                e.response
+                and any(
+                    "already exists" in str(v).lower()
+                    for v in (e.response.values() if isinstance(e.response, dict) else [])
+                )
+            )
+
+            if is_already_exists:
+                logger.warning(
+                    "resource_already_exists",
+                    resource_type=resource_type,
+                    source_id=source_id,
+                    error=str(e),
+                )
+
+                result = await self._handle_conflict(resource_type, source_id, data)
+                if result:
+                    self.stats["conflict_count"] += 1
+                    target_user_id = result.get("id")
+                    if target_user_id:
+                        await self._sync_team_memberships(
+                            source_user_id=source_id,
+                            target_user_id=target_user_id,
+                            source_team_ids=team_source_ids,
+                        )
+                    return result
+                else:
+                    self.stats["skipped_count"] += 1
+                    self.state.mark_completed(
+                        resource_type=resource_type,
+                        source_id=source_id,
+                        target_id=0,
+                        target_name=data.get("username", ""),
+                    )
+                    logger.info(
+                        "resource_skipped_exists",
+                        resource_type=resource_type,
+                        source_id=source_id,
+                        source_name=data.get("username"),
+                    )
+                    return None
+            else:
+                raise
 
         except Exception as e:
             # Mark as failed
@@ -3065,9 +3117,7 @@ class HostImporter(ResourceImporter):
                         source_group_ids = source_group_ids_by_source_id.get(source_id, [])
 
                         for source_group_id in source_group_ids:
-                            target_group_id = self.state.get_mapped_id(
-                                "groups", source_group_id
-                            )
+                            target_group_id = self.state.get_mapped_id("groups", source_group_id)
                             if not target_group_id:
                                 logger.debug(
                                     "host_group_association_skipped_unmapped",
@@ -3316,9 +3366,7 @@ class CredentialImporter(ResourceImporter):
                         f"organization, and type (source id: {source_id})."
                     )
                     data["name"] = renamed
-                    data["description"] = (
-                        f"{original_description}\n{rename_note}".strip()
-                    )
+                    data["description"] = f"{original_description}\n{rename_note}".strip()
                     logger.warning(
                         "credential_duplicate_renamed",
                         original_name=original_name,
@@ -3896,7 +3944,6 @@ class JobTemplateImporter(ResourceImporter):
                     template_name=template_name,
                     error=str(e),
                 )
-
 
 
 class WorkflowImporter(ResourceImporter):
@@ -4890,8 +4937,12 @@ class RoleUserAssignmentImporter(ResourceImporter):
                 continue
 
             target_resource_id = await _resolve_content_object_target_id(
-                self.state, self.client, resource_type, int(object_source_id),
-                content_object_name, source_id,
+                self.state,
+                self.client,
+                resource_type,
+                int(object_source_id),
+                content_object_name,
+                source_id,
             )
             if not target_resource_id:
                 logger.warning(
@@ -4998,8 +5049,12 @@ class RoleTeamAssignmentImporter(ResourceImporter):
                 continue
 
             target_resource_id = await _resolve_content_object_target_id(
-                self.state, self.client, resource_type, int(object_source_id),
-                content_object_name, source_id,
+                self.state,
+                self.client,
+                resource_type,
+                int(object_source_id),
+                content_object_name,
+                source_id,
             )
             if not target_resource_id:
                 logger.warning(

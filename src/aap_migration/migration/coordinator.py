@@ -483,6 +483,7 @@ class MigrationCoordinator:
                 resource_type=resource_type,
                 dry_run=self.config.dry_run,
                 state=self.state,  # Pass state for dependency validation
+                defer_project_sync=False,
             )
 
             importer = create_importer(

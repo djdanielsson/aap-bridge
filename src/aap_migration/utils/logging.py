@@ -308,6 +308,30 @@ def log_error(
     )
 
 
+def sanitize_database_url(url: str) -> str:
+    """Mask the password in a database connection URL.
+
+    Args:
+        url: Database connection URL (e.g., postgresql://user:pass@host/db)
+
+    Returns:
+        URL with password replaced by '***'
+    """
+    from urllib.parse import urlparse, urlunparse
+
+    try:
+        parsed = urlparse(url)
+        if parsed.password:
+            replaced = parsed._replace(
+                netloc=f"{parsed.username}:***@{parsed.hostname}"
+                + (f":{parsed.port}" if parsed.port else "")
+            )
+            return urlunparse(replaced)
+    except Exception:
+        pass
+    return url
+
+
 def sanitize_payload(payload: dict[str, Any] | list[Any] | Any, max_depth: int = 10) -> Any:
     """Sanitize sensitive fields in API payloads before logging.
 
