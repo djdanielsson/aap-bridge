@@ -38,65 +38,21 @@
         role_suffix: "tgt"
         container_name: "aap-{{ target_version | replace('.', '') }}-tgt"
 
-    - name: Create fresh API tokens
-      block:
-        - name: Create source token (RPM)
-          ansible.builtin.command:
-            cmd: >
-              podman exec aap-{{ source_version | replace('.', '') }}-src
-                awx-manage create_preauth_token --scope write --user admin
-          register: src_token
-          failed_when: false
-          when: aap_versions[source_version].installer.method != 'containerized'
+    - name: Create source API token
+      ansible.builtin.include_role:
+        name: api_token
+      vars:
+        aap_version: "{{ source_version }}"
+        container_name: "aap-{{ source_version | replace('.', '') }}-src"
+        token_label: src
 
-        - name: Create source token (containerized)
-          ansible.builtin.command:
-            cmd: >
-              podman exec --user aap -e XDG_RUNTIME_DIR=/run/user/1000
-                aap-{{ source_version | replace('.', '') }}-src
-                podman exec automation-controller-web
-                  awx-manage create_oauth2_token --user admin
-          register: src_token_c
-          failed_when: false
-          when: aap_versions[source_version].installer.method == 'containerized'
-
-        - name: Set source token result
-          ansible.builtin.set_fact:
-            src_token: "{{ src_token_c if aap_versions[source_version].installer.method == 'containerized' else src_token }}"
-
-        - name: Create target token (RPM)
-          ansible.builtin.command:
-            cmd: >
-              podman exec aap-{{ target_version | replace('.', '') }}-tgt
-                awx-manage create_preauth_token --scope write --user admin
-          register: tgt_token
-          failed_when: false
-          when: aap_versions[target_version].installer.method != 'containerized'
-
-        - name: Create target token (containerized)
-          ansible.builtin.command:
-            cmd: >
-              podman exec --user aap -e XDG_RUNTIME_DIR=/run/user/1000
-                aap-{{ target_version | replace('.', '') }}-tgt
-                podman exec automation-controller-web
-                  awx-manage create_oauth2_token --user admin
-          register: tgt_token_c
-          failed_when: false
-          when: aap_versions[target_version].installer.method == 'containerized'
-
-        - name: Set target token result
-          ansible.builtin.set_fact:
-            tgt_token: "{{ tgt_token_c if aap_versions[target_version].installer.method == 'containerized' else tgt_token }}"
-
-        - name: Save tokens
-          ansible.builtin.copy:
-            content: "{{ item.stdout | default('') | trim }}"
-            dest: "{{ playbook_dir }}/../generated/pairs/{{ pair_id }}/{{ item.name }}"
-            mode: "0600"
-          loop:
-            - { name: "src_token", stdout: "{{ src_token.stdout | default('') }}" }
-            - { name: "tgt_token", stdout: "{{ tgt_token.stdout | default('') }}" }
-          when: item.stdout | default('') | length > 0
+    - name: Create target API token
+      ansible.builtin.include_role:
+        name: api_token
+      vars:
+        aap_version: "{{ target_version }}"
+        container_name: "aap-{{ target_version | replace('.', '') }}-tgt"
+        token_label: tgt
 
     - name: Regenerate bridge config with fresh tokens
       ansible.builtin.include_role:
@@ -104,3 +60,7 @@
       vars:
         source_version: "{{ source_version }}"
         target_version: "{{ target_version }}"
+
+    - name: Register connections in bridge UI
+      ansible.builtin.include_role:
+        name: bridge_connections

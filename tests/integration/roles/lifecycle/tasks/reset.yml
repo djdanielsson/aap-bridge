@@ -20,13 +20,17 @@
   failed_when: false
   changed_when: rm_result.rc == 0
 
+- name: Remove stale storage volume (containerized installs)
+  ansible.builtin.command:
+    cmd: "podman volume rm {{ container_name }}-storage"
+  register: vol_rm_result
+  failed_when: false
+  changed_when: vol_rm_result.rc == 0
+  when: ver_config.installer.method | default('rpm') == 'containerized'
+
 - name: Recreate container from golden image
   ansible.builtin.include_role:
     name: base_container
-  vars:
-    aap_version: "{{ aap_version }}"
-    role_suffix: "{{ role_suffix }}"
-    container_name: "{{ container_name }}"
 
 - name: Wait for Controller API after reset
   ansible.builtin.command:

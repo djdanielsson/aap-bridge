@@ -46,10 +46,10 @@ help: ## Show this help message
 	@echo "    make build-builder                 # Build ansible runner (once)"
 	@echo "    make build-aap-bases               # Build UBI base images (once)"
 	@echo "    make build-aap VERSION=2.4         # Build AAP golden image (~45 min)"
-	@echo "    make run-pair SOURCE=2.3 TARGET=2.6"
-	@echo "    make test-bridge SOURCE=2.3 TARGET=2.6"
+	@echo "    make run-pair SOURCE=2.4 TARGET=2.6"
+	@echo "    make test-bridge SOURCE=2.4 TARGET=2.6"
 	@echo "    make test-all                      # Test all versions → 2.6"
-	@echo "    make reset-pair SOURCE=2.3 TARGET=2.6   # Reset instantly"
+	@echo "    make reset-pair SOURCE=2.4 TARGET=2.6   # Reset instantly"
 	@echo ""
 	@echo "  All targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -218,9 +218,17 @@ populate: ## Populate AAP instance with test data (HOST=... TOKEN=... SIZE=small
 
 BUILDER_IMAGE  := localhost/aap-bridge-builder:latest
 
-SOURCE   ?= 2.3
-TARGET   ?= 2.6
-VERSION  ?= 2.3
+# Auto-detect active pair from generated state; fall back to 2.4 → 2.6
+_PAIRS := $(wildcard tests/integration/generated/pairs/*-to-*)
+ifeq ($(words $(_PAIRS)),1)
+  _PAIR_NAME := $(notdir $(_PAIRS))
+  SOURCE ?= $(shell echo '$(_PAIR_NAME)' | sed 's/\(.\)\(.*\)-to-.*/\1.\2/')
+  TARGET ?= $(shell echo '$(_PAIR_NAME)' | sed 's/.*-to-\(.\)\(.*\)/\1.\2/')
+else
+  SOURCE ?= 2.4
+  TARGET ?= 2.6
+endif
+VERSION  ?= 2.4
 REGISTRY ?= localhost
 V        ?= 0
 DEBUG    ?= 0
@@ -288,20 +296,20 @@ list-golden: ## List all golden images
 	@podman images --filter 'reference=*aap-golden-*' \
 		--format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.Created}}'
 
-run-pair: ## Start AAP pair from golden images (SOURCE=2.3 TARGET=2.6)
+run-pair: ## Start AAP pair from golden images (SOURCE=2.4 TARGET=2.6)
 	$(run-builder) playbooks/run-pair.yml \
 		-e source_version=$(SOURCE) \
 		-e target_version=$(TARGET)
 
-stop-pair: ## Stop AAP pair containers (SOURCE=2.3 TARGET=2.6)
+stop-pair: ## Stop AAP pair containers (SOURCE=2.4 TARGET=2.6)
 	-podman stop aap-$(subst .,,$(SOURCE))-src aap-$(subst .,,$(TARGET))-tgt
 
-reset-pair: ## Reset pair to clean state (SOURCE=2.3 TARGET=2.6)
+reset-pair: ## Reset pair to clean state (SOURCE=2.4 TARGET=2.6)
 	$(run-builder) playbooks/reset-pair.yml \
 		-e source_version=$(SOURCE) \
 		-e target_version=$(TARGET)
 
-destroy-pair: ## Remove pair containers and network (SOURCE=2.3 TARGET=2.6)
+destroy-pair: ## Remove pair containers and network (SOURCE=2.4 TARGET=2.6)
 	$(run-builder) playbooks/destroy-pair.yml \
 		-e source_version=$(SOURCE) \
 		-e target_version=$(TARGET)
@@ -312,7 +320,7 @@ destroy-all: ## Remove ALL test containers, images, and networks
 status: ## Show all test containers and golden images
 	$(run-builder) playbooks/status.yml
 
-test-bridge: ## Run aap-bridge against pair (dry-run) (SOURCE=2.3 TARGET=2.6)
+test-bridge: ## Run aap-bridge against pair (dry-run) (SOURCE=2.4 TARGET=2.6)
 	@PAIR_ID="$(subst .,,$(SOURCE))-to-$(subst .,,$(TARGET))"; \
 	ENV_FILE="tests/integration/generated/pairs/$$PAIR_ID/.env"; \
 	if [ ! -f "$$ENV_FILE" ]; then \
@@ -355,7 +363,7 @@ test-all: ## Run migration test for all source versions → 2.6
 	echo "============================================================"; \
 	[ -z "$$FAIL" ]
 
-shell-src: ## Shell into source AAP container (SOURCE=2.3)
+shell-src: ## Shell into source AAP container (SOURCE=2.4)
 	podman exec -it aap-$(subst .,,$(SOURCE))-src /bin/bash
 
 shell-tgt: ## Shell into target AAP container (TARGET=2.6)
