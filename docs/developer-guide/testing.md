@@ -51,7 +51,7 @@ Host (podman + make)
 
 ```bash
 # 1. Build the app and start it with postgres
-make build-bridge
+make build
 make up
 
 # 2. Run tests
