@@ -6,8 +6,8 @@ migrations (e.g., 80,000+ hosts).
 
 ## Key Features
 
-- **Three Deployment Modes** - Run locally on the host, as a containerized CLI,
-  or as a full Web UI with 3-container deployment
+- **Three Deployment Modes** - Keep the original local install or choose a
+  containerized CLI or full Web UI workflow
 - **Web UI** - PatternFly-based web interface for managing connections, browsing
   resources, and running migrations with real-time log streaming
 - **CLI & TUI** - Full command-line and interactive terminal menu for all

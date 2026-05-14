@@ -1,6 +1,8 @@
 # Installation
 
 AAP Bridge can be run three ways. Choose whichever fits your environment:
+The containerized options add to the original local install; they do not
+replace it.
 
 | Mode | What you need | Best for |
 | --- | --- | --- |
