@@ -35,7 +35,7 @@ export function Migrate() {
   const [previewData, setPreviewData] = useState<MigrationPreviewData | null>(null);
   const [previewError, setPreviewError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [exclude, setExclude] = useState<Record<string, string[]>>({});
+  const [exclude, setExclude] = useState<Record<string, number[]>>({});
   const [cancelling, setCancelling] = useState(false);
   const [migrationDone, setMigrationDone] = useState(false);
   const [clearMsg, setClearMsg] = useState('');

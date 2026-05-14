@@ -20,6 +20,7 @@ from aap_migration.migration.transformer import SkipResourceError, create_transf
 from aap_migration.reporting.live_progress import MigrationProgressDisplay
 from aap_migration.reporting.progress import ProgressTracker
 from aap_migration.reporting.report import generate_migration_report
+from aap_migration.resources import normalize_resource_type
 from aap_migration.schema.comparator import SchemaComparator
 from aap_migration.schema.models import ComparisonResult
 from aap_migration.utils.logging import get_logger
@@ -161,6 +162,7 @@ class MigrationCoordinator:
         state: MigrationState,
         enable_progress: bool = True,
         show_stats: bool = False,
+        resource_exclusions: dict[str, set[int]] | None = None,
     ):
         """Initialize migration coordinator.
 
@@ -171,6 +173,7 @@ class MigrationCoordinator:
             state: Migration state manager
             enable_progress: Whether to enable progress bars (disable for CI/automation)
             show_stats: Whether to show detailed statistics in progress display
+            resource_exclusions: Source-side resource IDs to exclude, keyed by resource type
         """
         self.config = config
         self.source_client = source_client
@@ -182,6 +185,11 @@ class MigrationCoordinator:
         self._current_phase_id: str | None = None  # For progress_display updates
         self.enable_progress = enable_progress
         self.show_stats = show_stats
+        self.resource_exclusions = {
+            normalize_resource_type(resource_type): {int(source_id) for source_id in source_ids}
+            for resource_type, source_ids in (resource_exclusions or {}).items()
+            if source_ids
+        }
 
         # Schema comparison results (populated by compare_schemas_before_migration)
         self.schema_comparisons: dict[str, ComparisonResult] = {}
@@ -205,6 +213,36 @@ class MigrationCoordinator:
             source_url=config.source.url,
             target_url=config.target.url,
             dry_run=config.dry_run,
+            excluded_resource_types=len(self.resource_exclusions),
+        )
+
+    def _is_user_excluded(self, resource_type: str, source_id: int) -> bool:
+        canonical_type = normalize_resource_type(resource_type)
+        return source_id in self.resource_exclusions.get(canonical_type, set())
+
+    def _record_user_exclusion(
+        self,
+        phase_name: str,
+        resource_type: str,
+        source_id: int,
+        resource_name: str,
+    ) -> None:
+        logger.info(
+            "resource_excluded_by_user",
+            phase=phase_name,
+            resource_type=resource_type,
+            source_id=source_id,
+            source_name=resource_name,
+        )
+        self.metrics["skipped_items"].append(
+            {
+                "phase": phase_name,
+                "resource_type": resource_type,
+                "source_id": source_id,
+                "name": resource_name,
+                "reason": "Excluded by user from preview",
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
         )
 
     async def migrate_all(
@@ -515,6 +553,18 @@ class MigrationCoordinator:
                 source_id = resource["id"]
                 resource["_source_id"] = source_id
 
+                if self._is_user_excluded(resource_type, source_id):
+                    stats["skipped"] += 1
+                    self._record_user_exclusion(
+                        phase_config["name"],
+                        resource_type,
+                        source_id,
+                        resource.get("name", "unknown"),
+                    )
+                    if self.progress_tracker:
+                        self.progress_tracker.update_resource(skipped=1)
+                    continue
+
                 # Transform phase
                 try:
                     transformed = transformer.transform_resource(
@@ -760,6 +810,18 @@ class MigrationCoordinator:
             # Store source ID
             source_id = host["id"]
             host["_source_id"] = source_id
+
+            if self._is_user_excluded("hosts", source_id):
+                stats["skipped"] += 1
+                self._record_user_exclusion(
+                    "hosts",
+                    "hosts",
+                    source_id,
+                    host.get("name", "unknown"),
+                )
+                if self.progress_tracker:
+                    self.progress_tracker.update_resource(skipped=1)
+                continue
 
             # Transform (handles dependency validation for inventory)
             try:

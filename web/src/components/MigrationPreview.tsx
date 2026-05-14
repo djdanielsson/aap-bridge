@@ -31,8 +31,8 @@ const displayOrder = [
 
 interface Props {
   preview: MigrationPreviewData;
-  exclude: Record<string, string[]>;
-  onExcludeChange: (exclude: Record<string, string[]>) => void;
+  exclude: Record<string, number[]>;
+  onExcludeChange: (exclude: Record<string, number[]>) => void;
 }
 
 export function MigrationPreview({ preview, exclude, onExcludeChange }: Props) {
@@ -49,7 +49,7 @@ export function MigrationPreview({ preview, exclude, onExcludeChange }: Props) {
   let excludeCount = 0;
   for (const [type, items] of Object.entries(preview.resources)) {
     for (const item of items) {
-      const excluded = exclude[type]?.includes(item.name);
+      const excluded = exclude[type]?.includes(item.source_id);
       if (excluded) {
         excludeCount++;
       } else if (item.action === 'create') {
@@ -67,8 +67,8 @@ export function MigrationPreview({ preview, exclude, onExcludeChange }: Props) {
   const isTypeFullyExcluded = (type: string): boolean => {
     const items = preview.resources[type];
     if (!items || items.length === 0) return false;
-    const excludedNames = exclude[type] || [];
-    return items.every(i => excludedNames.includes(i.name));
+    const excludedIds = exclude[type] || [];
+    return items.every(i => excludedIds.includes(i.source_id));
   };
 
   const toggleTypeExclusion = (type: string) => {
@@ -78,19 +78,19 @@ export function MigrationPreview({ preview, exclude, onExcludeChange }: Props) {
     if (isTypeFullyExcluded(type)) {
       delete newExclude[type];
     } else {
-      newExclude[type] = items.map(i => i.name);
+      newExclude[type] = items.map(i => i.source_id);
     }
     onExcludeChange(newExclude);
   };
 
-  const toggleItemExclusion = (type: string, name: string) => {
+  const toggleItemExclusion = (type: string, sourceId: number) => {
     const newExclude = { ...exclude };
     const current = newExclude[type] || [];
-    if (current.includes(name)) {
-      newExclude[type] = current.filter(n => n !== name);
+    if (current.includes(sourceId)) {
+      newExclude[type] = current.filter(id => id !== sourceId);
       if (newExclude[type].length === 0) delete newExclude[type];
     } else {
-      newExclude[type] = [...current, name];
+      newExclude[type] = [...current, sourceId];
     }
     onExcludeChange(newExclude);
   };
@@ -130,8 +130,8 @@ export function MigrationPreview({ preview, exclude, onExcludeChange }: Props) {
 
       {orderedTypes.map(type => {
         const items = preview.resources[type];
-        const excludedNames = exclude[type] || [];
-        const activeItems = items.filter(i => !excludedNames.includes(i.name));
+        const excludedIds = exclude[type] || [];
+        const activeItems = items.filter(i => !excludedIds.includes(i.source_id));
         const creates = activeItems.filter(i => i.action === 'create').length;
         const skips = activeItems.length - creates;
         const excluded = items.length - activeItems.length;
@@ -178,14 +178,14 @@ export function MigrationPreview({ preview, exclude, onExcludeChange }: Props) {
               </thead>
               <tbody>
                 {items.map((item, i) => {
-                  const isItemExcluded = excludedNames.includes(item.name);
+                  const isItemExcluded = excludedIds.includes(item.source_id);
                   return (
                     <tr key={i} style={{ borderBottom: '1px solid #eee', opacity: isItemExcluded ? 0.5 : 1 }}>
                       <td style={{ padding: '4px 8px' }}>
                         <Checkbox
                           id={`exclude-${type}-${i}`}
                           isChecked={isItemExcluded}
-                          onChange={() => toggleItemExclusion(type, item.name)}
+                          onChange={() => toggleItemExclusion(type, item.source_id)}
                           aria-label={`Exclude ${item.name}`}
                         />
                       </td>

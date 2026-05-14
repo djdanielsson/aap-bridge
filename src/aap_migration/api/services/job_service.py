@@ -40,6 +40,12 @@ class JobService:
                 self._statuses[job_id] = {"status": "failed", "error": error}
             self._tasks.pop(job_id, None)
 
+    def mark_cancelled(self, job_id: str) -> None:
+        with self._lock:
+            if job_id in self._statuses:
+                self._statuses[job_id] = {"status": "cancelled"}
+            self._tasks.pop(job_id, None)
+
     def register_task(self, job_id: str, task: asyncio.Task) -> None:  # type: ignore[type-arg]
         with self._lock:
             self._tasks[job_id] = task
@@ -50,7 +56,6 @@ class JobService:
             if not task:
                 return False
             task.cancel()
-            if job_id in self._statuses:
-                self._statuses[job_id] = {"status": "cancelled"}
+            self._statuses[job_id] = {"status": "cancelled"}
             self._tasks.pop(job_id, None)
             return True

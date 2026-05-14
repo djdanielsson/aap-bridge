@@ -90,7 +90,7 @@ class ConnectionService:
             except Exception as e:
                 ping_error = str(e)
 
-        if ping_status == "ok" and api_prefix:
+        if ping_status == "ok" and api_prefix is not None:
             try:
                 resp = httpx.get(
                     f"{conn.url}{api_prefix}/me/",

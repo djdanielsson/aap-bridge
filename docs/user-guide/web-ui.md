@@ -9,6 +9,9 @@ real-time log streaming.
 See [Installation — Web UI](../getting-started/installation.md#web-ui) for
 setup instructions. Once running, open [http://localhost:8080](http://localhost:8080).
 
+The compose deployment requires `AAP_BRIDGE_ENCRYPTION_KEY` in your `.env` so
+saved connection tokens remain readable across container restarts.
+
 > **Networking note:** In the default `compose.yml`, the engine and UI containers
 > both use `network_mode: host` so they share the host network namespace. This is
 > specific to local testing where AAP instances run as podman containers with

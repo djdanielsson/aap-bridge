@@ -172,6 +172,10 @@ Browser-based interface for managing connections, previewing migrations, and str
 git clone https://github.com/redhat-cop/aap-bridge.git
 cd aap-bridge
 
+# Generate a persistent API token encryption key for the web API
+python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+# Add the printed value to .env as AAP_BRIDGE_ENCRYPTION_KEY=...
+
 # Build engine + UI container images
 make build-all
 

@@ -179,7 +179,7 @@ class OperationService:
                 self.job_service.mark_completed(job_id)
                 self._finish_job(job_id, "completed")
             except asyncio.CancelledError:
-                self.job_service.mark_failed(job_id, "Cancelled")
+                self.job_service.mark_cancelled(job_id)
                 self._finish_job(job_id, "cancelled")
             except Exception as e:
                 self.job_service.append_log(job_id, f"Cleanup failed: {e}")
@@ -259,7 +259,7 @@ class OperationService:
                 self.job_service.mark_completed(job_id)
                 self._finish_job(job_id, "completed")
             except asyncio.CancelledError:
-                self.job_service.mark_failed(job_id, "Cancelled")
+                self.job_service.mark_cancelled(job_id)
                 self._finish_job(job_id, "cancelled")
             except Exception as e:
                 self.job_service.append_log(job_id, f"Export failed: {e}")

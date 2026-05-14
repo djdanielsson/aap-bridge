@@ -54,7 +54,12 @@ def run_migration(data: MigrateRunRequest, db: Session = Depends(get_db)) -> Job
     from aap_migration.api.services.migration_service import MigrationService
 
     mig_svc = MigrationService(state.job_service, state.db_session_factory, state.loop)
-    job_id = mig_svc.start_run(source, dest, data.job_id, data.exclusions)
+    try:
+        job_id = mig_svc.start_run(source, dest, data.job_id, data.exclusions)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return JobCreatedResponse(job_id=job_id)
 
 

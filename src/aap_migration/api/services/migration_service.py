@@ -269,6 +269,28 @@ class MigrationService:
             "api_prefix": conn.api_prefix,
         }
 
+    def _validate_preview_job(
+        self, preview_job_id: str, source_id: str, destination_id: str
+    ) -> dict | None:
+        db = self.session_factory()
+        try:
+            job = db.query(Job).filter(Job.id == preview_job_id).first()
+            if not job:
+                raise LookupError("Preview job not found")
+            if job.type != "migration-preview":
+                raise ValueError("Job is not a migration preview")
+            if job.status != "completed" or not job.job_metadata:
+                raise ValueError("Preview job is not complete")
+            if job.job_metadata.get("source_id") != source_id:
+                raise ValueError("Preview source does not match selected source connection")
+            if job.job_metadata.get("destination_id") != destination_id:
+                raise ValueError(
+                    "Preview destination does not match selected destination connection"
+                )
+            return job.job_metadata
+        finally:
+            db.close()
+
     def start_preview(self, source: Connection, dest: Connection) -> str:
         job_id = self._create_job("migration-preview", source.id)
         src_snap = self._snapshot_connection(source)
@@ -356,7 +378,7 @@ class MigrationService:
                 self.job_service.mark_completed(job_id)
                 self._finish_job(job_id, "completed", metadata=preview_data)
             except asyncio.CancelledError:
-                self.job_service.mark_failed(job_id, "Cancelled")
+                self.job_service.mark_cancelled(job_id)
                 self._finish_job(job_id, "cancelled")
             except Exception as e:
                 self.job_service.append_log(job_id, f"ERROR: {e}")
@@ -389,8 +411,9 @@ class MigrationService:
         source: Connection,
         dest: Connection,
         preview_job_id: str,
-        exclusions: dict | None = None,
+        exclusions: dict[str, list[int]] | None = None,
     ) -> str:
+        self._validate_preview_job(preview_job_id, source.id, dest.id)
         job_id = self._create_job("migration-run", source.id)
         src_snap = self._snapshot_connection(source)
         dst_snap = self._snapshot_connection(dest)
@@ -432,6 +455,7 @@ class MigrationService:
                     state=state,
                     enable_progress=False,
                     show_stats=False,
+                    resource_exclusions=exclusions or {},
                 )
 
                 self.job_service.append_log(job_id, "Running migration...")
@@ -456,7 +480,7 @@ class MigrationService:
                 self._finish_job(job_id, "completed", metadata=summary)
             except asyncio.CancelledError:
                 self.job_service.append_log(job_id, "Migration cancelled")
-                self.job_service.mark_failed(job_id, "Cancelled")
+                self.job_service.mark_cancelled(job_id)
                 self._finish_job(job_id, "cancelled")
             except Exception as e:
                 self.job_service.append_log(job_id, f"Migration failed: {e}")

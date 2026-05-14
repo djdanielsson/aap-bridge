@@ -34,12 +34,12 @@ export const api = {
     request<{ job_id: string }>('POST', '/api/migrate/preview', { source_id: sourceId, destination_id: destinationId }),
   getMigrationPreview: (jobId: string) =>
     request<PreviewStatusResponse>('GET', `/api/migrate/preview/${jobId}`),
-  migrationRun: (sourceId: string, destinationId: string, previewJobId: string, exclude?: Record<string, string[]>) =>
+  migrationRun: (sourceId: string, destinationId: string, previewJobId: string, exclude?: Record<string, number[]>) =>
     request<{ job_id: string }>('POST', '/api/migrate/run', {
       source_id: sourceId,
       destination_id: destinationId,
       job_id: previewJobId,
-      exclude: exclude || {},
+      exclusions: exclude || {},
     }),
 
   clearMigrationState: () => request<{ cleared_progress: number; deleted_mappings: number }>('POST', '/api/migrate/clear-state'),
