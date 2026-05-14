@@ -159,7 +159,10 @@ async def test_resume_context_mismatch_aborts(
 
     mock_ctx = MagicMock()
     mock_ctx.config.source.url = run_context.source_url
+    mock_ctx.config.source.version = run_context.source_version
+    mock_ctx.config.target.version = "2.6.0"
     mock_ctx.config.paths.export_dir = str(output_dir)
+    mock_ctx.config.export.filters = {}
     mock_ctx.migration_state.database_url = "sqlite:///:memory:"
 
     with patch("aap_migration.cli.commands.export_import.pass_context", lambda x: x):
@@ -188,14 +191,21 @@ async def test_resume_context_mismatch_force_override(
 
     mock_ctx = MagicMock()
     mock_ctx.config.source.url = run_context.source_url
+    mock_ctx.config.source.version = run_context.source_version
+    mock_ctx.config.target.version = "2.6.0"
     mock_ctx.config.paths.export_dir = str(output_dir)
+    mock_ctx.config.export.records_per_file = 100
+    mock_ctx.config.export.filters = {}
+    mock_ctx.config.performance.parallel_resource_types = False
     mock_ctx.migration_state.database_url = "sqlite:///:memory:"
 
-    # Mock run_export to avoid actual API calls
     with patch("aap_migration.cli.commands.export_import.pass_context", lambda x: x):
         with patch("aap_migration.cli.commands.export_import.requires_config", lambda x: x):
             with patch("aap_migration.cli.commands.export_import.handle_errors", lambda x: x):
-                with patch("aap_migration.cli.commands.export_import.asyncio.run"):
+                with patch(
+                    "aap_migration.cli.commands.export_import.get_exportable_types",
+                    return_value=[],
+                ):
                     runner = CliRunner()
                     result = runner.invoke(export, ["--resume", "--force", "--yes"], obj=mock_ctx)
 

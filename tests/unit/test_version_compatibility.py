@@ -26,12 +26,12 @@ def test_version_path_major_minor_matching():
 
 def test_version_path_unsupported():
     """Test lookup for unsupported version pair."""
-    # 2.0 is not in our matrix
-    path = get_version_path("2.0.0", "2.6.0")
-    assert path is None
-
     # Target 2.7 is not in our matrix
     path = get_version_path("2.3.0", "2.7.0")
+    assert path is None
+
+    # Source 3.0 is not in our matrix
+    path = get_version_path("3.0.0", "2.6.0")
     assert path is None
 
 

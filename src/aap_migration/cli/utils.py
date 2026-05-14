@@ -5,11 +5,13 @@ This module provides helper functions for common CLI operations like
 formatting output, progress tracking, and validation.
 """
 
-from collections.abc import Generator
+import asyncio
+import threading
+from collections.abc import Awaitable, Callable, Generator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import click
 from rich.console import Console
@@ -24,6 +26,7 @@ from rich.progress import (
 from rich.table import Table
 
 console = Console()
+T = TypeVar("T")
 
 
 def echo_success(message: str) -> None:
@@ -44,6 +47,39 @@ def echo_warning(message: str) -> None:
 def echo_info(message: str) -> None:
     """Print info message in blue."""
     click.secho(f"ℹ {message}", fg="blue")
+
+
+def run_async_command(coro_factory: Callable[[], Awaitable[T]]) -> T:
+    """Run an async CLI task from sync command code.
+
+    When the current thread already has a running event loop (common in tests),
+    run the coroutine in a worker thread with its own loop instead of calling
+    ``loop.run_until_complete()`` on the active loop.
+    """
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro_factory())
+
+    result: T | None = None
+    error: BaseException | None = None
+
+    def _runner() -> None:
+        nonlocal result, error
+        try:
+            result = asyncio.run(coro_factory())
+        except BaseException as exc:  # pragma: no cover - re-raised in caller
+            error = exc
+
+    thread = threading.Thread(target=_runner, name="aap-bridge-async-runner")
+    thread.start()
+    thread.join()
+
+    if error is not None:
+        raise error
+
+    return result  # type: ignore[return-value]
 
 
 def echo_step_complete(message: str) -> None:

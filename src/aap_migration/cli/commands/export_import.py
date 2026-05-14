@@ -5,7 +5,6 @@ This module provides commands for exporting resources from source AAP
 and importing them to target AAP independently.
 """
 
-import asyncio
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -27,6 +26,7 @@ from aap_migration.cli.utils import (
     echo_success,
     echo_warning,
     format_count,
+    run_async_command,
     step_progress,
 )
 from aap_migration.migration.exporter import create_exporter
@@ -812,11 +812,7 @@ def export(
                 if handler not in root_logger.handlers:
                     root_logger.addHandler(handler)
 
-    try:
-        asyncio.run(run_export())
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(run_export())
+    run_async_command(run_export)
 
 
 @click.command(name="import")
@@ -1261,9 +1257,7 @@ def import_cmd(
         # Step 1: Clear target_ids only for this batch's source rows so we do not wipe
         # id_mappings for other resources of the same type imported in a prior step
         # (e.g. static inventories vs. later smart_inventories both use resource_type inventory).
-        source_ids_for_reset = [
-            sid for r in resources if (sid := r.get("_source_id")) is not None
-        ]
+        source_ids_for_reset = [sid for r in resources if (sid := r.get("_source_id")) is not None]
         cleared_count = state.reset_target_ids_for_source_ids(
             mapping_resource_type, source_ids_for_reset
         )
@@ -1484,9 +1478,7 @@ def import_cmd(
                     if source_parent_id is not None
                     else None
                 )
-                lookup_key = (
-                    (name, target_parent_id) if target_parent_id is not None else name
-                )
+                lookup_key = (name, target_parent_id) if target_parent_id is not None else name
             else:
                 # Globally unique resources — identifier is the plain name/username/etc.
                 lookup_key = identifier
@@ -1647,7 +1639,9 @@ def import_cmd(
                             )
 
                     # Load all files for this resource type
-                    resource_dir = input_dir / ("inventory" if rtype == "smart_inventories" else rtype)
+                    resource_dir = input_dir / (
+                        "inventory" if rtype == "smart_inventories" else rtype
+                    )
                     if not resource_dir.exists():
                         echo_warning(f"No directory for {rtype}, skipping")
                         progress.complete_phase(phase_id)
@@ -1722,7 +1716,9 @@ def import_cmd(
                     if not dry_run:
                         # Create appropriate importer using factory
                         try:
-                            importer_resource_type = "inventory" if rtype == "smart_inventories" else rtype
+                            importer_resource_type = (
+                                "inventory" if rtype == "smart_inventories" else rtype
+                            )
                             importer = create_importer(
                                 importer_resource_type,
                                 ctx.target_client,
@@ -1854,7 +1850,9 @@ def import_cmd(
                                 rtype == "constructed_inventories"
                                 and not dry_run
                                 and transformed_resources
-                                and hasattr(importer, "sync_input_inventories_for_constructed_resources")
+                                and hasattr(
+                                    importer, "sync_input_inventories_for_constructed_resources"
+                                )
                             ):
                                 await importer.sync_input_inventories_for_constructed_resources(
                                     transformed_resources
@@ -1887,11 +1885,7 @@ def import_cmd(
                             # Teams: users are imported in the same phase immediately before teams,
                             # but team id_mappings aren't set until now. Reconcile any memberships
                             # that were skipped during user import due to unmapped team IDs.
-                            if (
-                                rtype == "teams"
-                                and not dry_run
-                                and hasattr(importer, "stats")
-                            ):
+                            if rtype == "teams" and not dry_run and hasattr(importer, "stats"):
                                 users_dir = input_dir / "users"
                                 users_for_resync: list[dict] = []
                                 if users_dir.exists():
@@ -1915,9 +1909,13 @@ def import_cmd(
                                         skip_execution_environment_names=ctx.config.export.skip_execution_environment_names,
                                         skip_credential_names=ctx.config.export.skip_credential_names,
                                     )
-                                    if hasattr(user_importer, "sync_team_memberships_for_existing_users"):
-                                        await user_importer.sync_team_memberships_for_existing_users(
-                                            users_for_resync
+                                    if hasattr(
+                                        user_importer, "sync_team_memberships_for_existing_users"
+                                    ):
+                                        await (
+                                            user_importer.sync_team_memberships_for_existing_users(
+                                                users_for_resync
+                                            )
                                         )
                                         logger.info(
                                             "user_team_memberships_resync_after_teams",
@@ -2243,8 +2241,4 @@ def import_cmd(
                 if handler not in root_logger.handlers:
                     root_logger.addHandler(handler)
 
-    try:
-        asyncio.run(run_import())
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(run_import())
+    run_async_command(run_import)
