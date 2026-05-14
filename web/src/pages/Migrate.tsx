@@ -39,7 +39,7 @@ export function Migrate() {
   const [cancelling, setCancelling] = useState(false);
   const [migrationDone, setMigrationDone] = useState(false);
   const [clearMsg, setClearMsg] = useState('');
-  const pollAbort = useRef(false);
+  const pollJobId = useRef('');
 
   const loadConnections = useCallback(async () => {
     const conns = await api.listConnections() as Connection[];
@@ -49,7 +49,7 @@ export function Migrate() {
   useEffect(() => { loadConnections(); }, [loadConnections]);
 
   useEffect(() => {
-    return () => { pollAbort.current = true; };
+    return () => { pollJobId.current = ''; };
   }, []);
 
   const handlePreview = async () => {
@@ -74,14 +74,14 @@ export function Migrate() {
   };
 
   const pollPreview = (jobId: string) => {
-    pollAbort.current = false;
+    pollJobId.current = jobId;
     let retries = 0;
     const maxRetries = 20;
     const poll = async () => {
-      if (pollAbort.current) return;
+      if (pollJobId.current !== jobId) return;
       try {
         const resp = await api.getMigrationPreview(jobId) as Record<string, unknown>;
-        if (pollAbort.current) return;
+        if (pollJobId.current !== jobId) return;
         if (resp.status === 'running') {
           setTimeout(poll, 1500);
           return;
@@ -97,7 +97,7 @@ export function Migrate() {
           setPreviewError('Preview polling failed after multiple retries');
           return;
         }
-        if (!pollAbort.current) setTimeout(poll, 1500);
+        if (pollJobId.current === jobId) setTimeout(poll, 1500);
       }
     };
     setTimeout(poll, 2000);
@@ -130,7 +130,7 @@ export function Migrate() {
   };
 
   const handleBack = () => {
-    pollAbort.current = true;
+    pollJobId.current = '';
     setStep('select');
     setPreviewJobId('');
     setRunJobId('');
@@ -179,7 +179,7 @@ export function Migrate() {
                     aria-label="Select source connection"
                   >
                     <FormSelectOption key="" value="" label="-- Select source --" isDisabled />
-                    {connections.map(c => (
+                    {connections.filter(c => c.role === 'source').map(c => (
                       <FormSelectOption
                         key={c.id}
                         value={c.id}
@@ -199,7 +199,7 @@ export function Migrate() {
                     aria-label="Select destination connection"
                   >
                     <FormSelectOption key="" value="" label="-- Select destination (AAP only) --" isDisabled />
-                    {connections.filter(c => c.type === 'aap').map(c => (
+                    {connections.filter(c => c.role === 'destination').map(c => (
                       <FormSelectOption
                         key={c.id}
                         value={c.id}

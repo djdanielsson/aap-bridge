@@ -38,6 +38,8 @@ class ConnectionService:
         update_data = data.model_dump(exclude_unset=True)
         if "url" in update_data and update_data["url"]:
             update_data["url"] = update_data["url"].rstrip("/")
+        if "token" in update_data and update_data["token"] in ("********", ""):
+            del update_data["token"]
         for key, value in update_data.items():
             setattr(conn, key, value)
         self.db.commit()

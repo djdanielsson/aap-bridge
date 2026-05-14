@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -5,6 +7,8 @@ from aap_migration.api.dependencies import get_db
 from aap_migration.api.services.connection_service import ConnectionService
 
 router = APIRouter(tags=["resources"])
+
+_VALID_RESOURCE_TYPE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 @router.get("/connections/{connection_id}/resources")
@@ -28,6 +32,8 @@ def list_resources(
     search: str = Query(""),
     db: Session = Depends(get_db),
 ) -> list:
+    if not _VALID_RESOURCE_TYPE.match(resource_type):
+        raise HTTPException(status_code=400, detail="Invalid resource type")
     svc = ConnectionService(db)
     conn = svc.get(connection_id)
     if not conn:

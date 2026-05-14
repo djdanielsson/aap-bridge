@@ -328,7 +328,7 @@ def sanitize_database_url(url: str) -> str:
             )
             return urlunparse(replaced)
     except Exception:
-        pass
+        return "<unparseable database url>"
     return url
 
 

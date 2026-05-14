@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import logging
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from aap_migration.api.models import Connection, Job
 from aap_migration.api.services.job_service import JobService
 
+_current_job_id: contextvars.ContextVar[str] = contextvars.ContextVar("current_job_id", default="")
+
 
 class JobLogHandler(logging.Handler):
     def __init__(self, job_service: JobService, job_id: str) -> None:
@@ -16,6 +19,8 @@ class JobLogHandler(logging.Handler):
         self.job_id = job_id
 
     def emit(self, record: logging.LogRecord) -> None:
+        if _current_job_id.get("") != self.job_id:
+            return
         msg = self.format(record)
         self.job_service.append_log(self.job_id, msg)
 
@@ -68,6 +73,7 @@ class OperationService:
         handler.setFormatter(logging.Formatter("%(message)s"))
         root = logging.getLogger()
         root.addHandler(handler)
+        _current_job_id.set(job_id)
         return handler
 
     def _detach_log_handler(self, handler: JobLogHandler) -> None:
