@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Button,
   Title,
@@ -39,6 +39,7 @@ export function Migrate() {
   const [cancelling, setCancelling] = useState(false);
   const [migrationDone, setMigrationDone] = useState(false);
   const [clearMsg, setClearMsg] = useState('');
+  const pollAbort = useRef(false);
 
   const loadConnections = useCallback(async () => {
     const conns = await api.listConnections() as Connection[];
@@ -46,6 +47,10 @@ export function Migrate() {
   }, []);
 
   useEffect(() => { loadConnections(); }, [loadConnections]);
+
+  useEffect(() => {
+    return () => { pollAbort.current = true; };
+  }, []);
 
   const handlePreview = async () => {
     if (!sourceId || !destId) return;
@@ -68,10 +73,15 @@ export function Migrate() {
     }
   };
 
-  const pollPreview = async (jobId: string) => {
+  const pollPreview = (jobId: string) => {
+    pollAbort.current = false;
+    let retries = 0;
+    const maxRetries = 20;
     const poll = async () => {
+      if (pollAbort.current) return;
       try {
         const resp = await api.getMigrationPreview(jobId) as Record<string, unknown>;
+        if (pollAbort.current) return;
         if (resp.status === 'running') {
           setTimeout(poll, 1500);
           return;
@@ -82,7 +92,12 @@ export function Migrate() {
         }
         setPreviewData(resp as unknown as MigrationPreviewData);
       } catch {
-        setTimeout(poll, 1500);
+        retries++;
+        if (retries >= maxRetries) {
+          setPreviewError('Preview polling failed after multiple retries');
+          return;
+        }
+        if (!pollAbort.current) setTimeout(poll, 1500);
       }
     };
     setTimeout(poll, 2000);
@@ -115,6 +130,7 @@ export function Migrate() {
   };
 
   const handleBack = () => {
+    pollAbort.current = true;
     setStep('select');
     setPreviewJobId('');
     setRunJobId('');
