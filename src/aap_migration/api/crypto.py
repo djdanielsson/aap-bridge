@@ -24,7 +24,7 @@ def _get_fernet() -> Fernet:
         key_file = Path(".secret_key")
         if key_file.exists():
             key = key_file.read_text().strip()
-        else:
+        if not key:
             key = Fernet.generate_key().decode()
             key_file.write_text(key)
             key_file.chmod(0o600)

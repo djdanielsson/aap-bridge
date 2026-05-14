@@ -176,11 +176,11 @@ prepare-pgdata: ## Prepare PostgreSQL volume ownership for rootless Podman
 	@podman unshare chown -R 26:26 "$$(podman volume inspect $(PGDATA_VOLUME) --format '{{.Mountpoint}}')"
 
 up: prepare-pgdata ## Start db + engine + ui (web interface)
-	@touch .secret_key
+	@[ -s .secret_key ] || python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > .secret_key
 	$(COMPOSE) up -d db engine ui
 
 up-dev: prepare-pgdata ## Start db + bridge (CLI dev container)
-	@touch .secret_key
+	@[ -s .secret_key ] || python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > .secret_key
 	$(COMPOSE) up -d db bridge
 
 down: ## Stop all containers

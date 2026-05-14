@@ -1,6 +1,9 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from aap_migration.api.dependencies import get_db
+from aap_migration.api.services.connection_service import ConnectionService
 from aap_migration.sizing.calculator import AAP26SizingCalculator
 
 router = APIRouter(tags=["sizing"])
@@ -110,3 +113,51 @@ def calculate_sizing(data: SizingRequest) -> SizingResponse:
         warnings=warnings,
         validation_warnings=validation_warnings,
     )
+
+
+class DynamicSizingRequest(BaseModel):
+    connection_id: str = Field(..., description="ID of the source AAP connection to analyze")
+    history_days: int = Field(
+        default=30, ge=1, le=365, description="Days of job history to analyze"
+    )
+
+
+class DynamicSizingResponse(BaseModel):
+    mode: str
+    source_observed: dict
+    derived_inputs: dict
+    headroom_multiplier: float
+    recommendation: dict
+
+
+@router.post("/sizing/dynamic", response_model=DynamicSizingResponse)
+def calculate_dynamic_sizing(
+    data: DynamicSizingRequest, db: Session = Depends(get_db)
+) -> DynamicSizingResponse:
+    svc = ConnectionService(db)
+    conn = svc.get(data.connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    token = svc.get_decrypted_token(conn)
+    if not token:
+        raise HTTPException(
+            status_code=400, detail="Connection has no authentication token configured"
+        )
+
+    from aap_migration.sizing.dynamic import calculate_dynamic_sizing as run_dynamic
+
+    try:
+        result = run_dynamic(
+            base_url=conn.url,
+            token=token,
+            api_prefix=conn.api_prefix,
+            verify_ssl=conn.verify_ssl,
+            history_days=data.history_days,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to collect metrics from AAP instance: {e}"
+        ) from e
+
+    return DynamicSizingResponse(**result)

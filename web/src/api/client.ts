@@ -66,6 +66,9 @@ export const api = {
 
   calculateSizing: (params: Record<string, unknown>) =>
     request<unknown>('POST', '/api/sizing/calculate', params),
+
+  calculateDynamicSizing: (connectionId: string, historyDays: number = 30) =>
+    request<unknown>('POST', '/api/sizing/dynamic', { connection_id: connectionId, history_days: historyDays }),
 };
 
 export function createJobLogSocket(jobId: string, onMessage: (line: string) => void, onClose?: (status: string) => void): WebSocket {

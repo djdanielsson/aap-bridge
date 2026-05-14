@@ -302,9 +302,15 @@ class DynamicSizingCollector:
         ]
         control_instances = [i for i in instances if i.get("node_type") in ("control", "hybrid")]
 
-        # Compute current resource totals
-        total_current_cpu = sum(i.get("cpu", 0) or 0 for i in instances)
-        total_current_memory = sum((i.get("memory", 0) or 0) for i in instances)
+        # Compute current resource totals (API may return cpu as string like "14.0")
+        def _num(val: Any, default: float = 0) -> float:
+            try:
+                return float(val) if val is not None else default
+            except (TypeError, ValueError):
+                return default
+
+        total_current_cpu = sum(_num(i.get("cpu")) for i in instances)
+        total_current_memory = sum(_num(i.get("memory")) for i in instances)
         total_current_memory_gb = (
             total_current_memory / (1024**3) if total_current_memory > 0 else 0
         )
