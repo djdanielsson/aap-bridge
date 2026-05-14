@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -18,6 +20,9 @@ class SizingRequest(BaseModel):
     verbosity_level: int = Field(default=1, ge=0, le=4)
     allowed_hours_per_day: float = Field(default=8, ge=1, le=24)
     peak_pattern: str = Field(default="business_hours")
+    deployment_target: Literal["ocp", "containerized"] = Field(
+        default="ocp", description="Deployment target: ocp (OpenShift) or containerized (Podman)"
+    )
     # Advanced inputs
     num_controllers: int = Field(default=2, ge=1, description="Number of controller nodes")
     concurrent_jobs: int = Field(default=0, ge=0, description="Max concurrent jobs (0=auto)")
@@ -37,6 +42,7 @@ class SizingResponse(BaseModel):
     execution_nodes: dict
     controller: dict
     database: dict
+    deployment: dict | None = None
     automation_hub: dict | None = None
     gateway: dict | None = None
     eda: dict | None = None
@@ -49,6 +55,7 @@ class SizingResponse(BaseModel):
 def calculate_sizing(data: SizingRequest) -> SizingResponse:
     calculator = AAP26SizingCalculator()
     metrics = data.model_dump()
+    deployment_target = metrics.pop("deployment_target", "ocp")
 
     warnings: list[str] = []
     for key, val in metrics.items():
@@ -57,43 +64,15 @@ def calculate_sizing(data: SizingRequest) -> SizingResponse:
             if w:
                 warnings.extend(w)
 
-    execution = calculator.calculate_execution_node_resources(metrics)
-    controller = calculator.calculate_controller_resources(metrics)
-    database = calculator.calculate_database_resources(metrics)
-
-    automation_hub = None
-    gateway = None
-    eda = None
-    redis = None
-
-    try:
-        automation_hub = calculator.calculate_automation_hub_resources(metrics)
-    except Exception:
-        pass
-
-    try:
-        gateway = calculator.calculate_gateway_resources(metrics)
-    except Exception:
-        pass
-
-    if metrics.get("eda_nodes", 0) > 0:
-        try:
-            eda = calculator.calculate_eda_resources(metrics)
-        except Exception:
-            pass
-
-    try:
-        redis = calculator.calculate_redis_resources(metrics)
-    except Exception:
-        pass
+    recommendation = calculator.generate_sizing_recommendation(metrics, deployment_target)
 
     # Post-calculation validation
     validation_warnings: list[str] = []
     try:
         all_results = {
-            "execution": execution,
-            "controller": controller,
-            "database": database,
+            "execution": recommendation["components"]["automation_controller_execution_plane"],
+            "controller": recommendation["components"]["automation_controller_control_plane"],
+            "database": recommendation["components"]["database"],
         }
         vw = calculator.validate_results(all_results)
         if vw:
@@ -103,14 +82,15 @@ def calculate_sizing(data: SizingRequest) -> SizingResponse:
 
     return SizingResponse(
         input=metrics,
-        execution_nodes=execution,
-        controller=controller,
-        database=database,
-        automation_hub=automation_hub,
-        gateway=gateway,
-        eda=eda,
-        redis=redis,
-        warnings=warnings,
+        execution_nodes=recommendation["components"]["automation_controller_execution_plane"],
+        controller=recommendation["components"]["automation_controller_control_plane"],
+        database=recommendation["components"]["database"],
+        deployment=recommendation.get("deployment"),
+        automation_hub=recommendation["components"].get("automation_hub"),
+        gateway=recommendation["components"].get("platform_gateway"),
+        eda=recommendation["components"].get("event_driven_ansible"),
+        redis=recommendation["components"].get("redis"),
+        warnings=warnings + recommendation.get("warnings", []),
         validation_warnings=validation_warnings,
     )
 
@@ -120,10 +100,14 @@ class DynamicSizingRequest(BaseModel):
     history_days: int = Field(
         default=30, ge=1, le=365, description="Days of job history to analyze"
     )
+    deployment_target: Literal["ocp", "containerized"] = Field(
+        default="ocp", description="Deployment target: ocp (OpenShift) or containerized (Podman)"
+    )
 
 
 class DynamicSizingResponse(BaseModel):
     mode: str
+    deployment_target: str = "ocp"
     source_observed: dict
     derived_inputs: dict
     headroom_multiplier: float
@@ -154,6 +138,7 @@ def calculate_dynamic_sizing(
             api_prefix=conn.api_prefix,
             verify_ssl=conn.verify_ssl,
             history_days=data.history_days,
+            deployment_target=data.deployment_target,
         )
     except Exception as e:
         raise HTTPException(

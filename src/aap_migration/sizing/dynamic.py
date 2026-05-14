@@ -386,6 +386,7 @@ def calculate_dynamic_sizing(
     api_prefix: str | None = None,
     verify_ssl: bool = True,
     history_days: int = 30,
+    deployment_target: str = "ocp",
 ) -> dict[str, Any]:
     """Run dynamic sizing: collect metrics from live AAP and produce recommendations.
 
@@ -403,13 +404,13 @@ def calculate_dynamic_sizing(
     sizing_inputs = metrics["sizing_inputs"]
 
     calculator = AAP26SizingCalculator()
-    recommendation = calculator.generate_sizing_recommendation(sizing_inputs)
+    recommendation = calculator.generate_sizing_recommendation(sizing_inputs, deployment_target)
 
-    # Enforce minimum specs
-    _enforce_minimums(recommendation)
+    _enforce_minimums(recommendation, deployment_target)
 
     return {
         "mode": "dynamic",
+        "deployment_target": deployment_target,
         "source_observed": metrics["observed"],
         "derived_inputs": sizing_inputs,
         "headroom_multiplier": metrics["headroom_applied"],
@@ -418,28 +419,38 @@ def calculate_dynamic_sizing(
 
 
 # AAP 2.6 minimum specs per Red Hat documentation
-MIN_SPECS = {
+MIN_SPECS_OCP = {
     "platform_gateway": {"cpu_per_pod": 2, "memory_per_pod_gb": 4},
     "automation_controller_control_plane": {"cpu_per_pod": 2, "memory_per_pod_gb": 4},
     "automation_controller_execution_plane": {"cpu_per_pod": 2, "memory_per_pod_gb": 4},
     "automation_hub": {"cpu_per_pod": 2, "memory_per_pod_gb": 4},
     "event_driven_ansible": {"cpu_per_pod": 2, "memory_per_pod_gb": 4},
-    "database": {"cpu": 2, "memory_gb": 8, "storage_gb": 60},
+    "database": {"cpu": 4, "memory_gb": 16, "storage_gb": 60},
+    "redis": {"total_cpu": 1, "total_memory_gb": 2},
+}
+
+MIN_SPECS_CONTAINERIZED = {
+    "platform_gateway": {"cpu_per_pod": 4, "memory_per_pod_gb": 16},
+    "automation_controller_control_plane": {"cpu_per_pod": 4, "memory_per_pod_gb": 16},
+    "automation_controller_execution_plane": {"cpu_per_pod": 4, "memory_per_pod_gb": 16},
+    "automation_hub": {"cpu_per_pod": 4, "memory_per_pod_gb": 16},
+    "event_driven_ansible": {"cpu_per_pod": 4, "memory_per_pod_gb": 16},
+    "database": {"cpu": 4, "memory_gb": 16, "storage_gb": 60},
     "redis": {"total_cpu": 1, "total_memory_gb": 2},
 }
 
 
-def _enforce_minimums(recommendation: dict[str, Any]) -> None:
+def _enforce_minimums(recommendation: dict[str, Any], deployment_target: str = "ocp") -> None:
     """Ensure no component goes below AAP 2.6 minimum specs."""
+    min_specs = MIN_SPECS_OCP if deployment_target == "ocp" else MIN_SPECS_CONTAINERIZED
     components = recommendation.get("components", {})
-    for comp_name, mins in MIN_SPECS.items():
+    for comp_name, mins in min_specs.items():
         comp = components.get(comp_name)
         if not comp:
             continue
         for key, min_val in mins.items():
             if key in comp and comp[key] < min_val:
                 comp[key] = min_val
-        # Recompute totals if per-pod values were bumped
         if "cpu_per_pod" in mins and "total_cpu" in comp:
             pod_key = next((k for k in comp if k.endswith("_pods") or k == "execution_pods"), None)
             if pod_key:

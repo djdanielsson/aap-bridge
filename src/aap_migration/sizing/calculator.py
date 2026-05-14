@@ -684,10 +684,231 @@ class AAP26SizingCalculator:
                 "note": "Standalone Redis for smaller deployments",
             }
 
-    def generate_sizing_recommendation(self, current_metrics: dict[str, Any]) -> dict[str, Any]:
+    # AAP 2.6 Tested Topology Specifications (from Red Hat documentation)
+    TOPOLOGY_SPECS = {
+        "ocp": {
+            "growth": {
+                "description": "Single Node OpenShift (SNO) - all components on one node",
+                "node_spec": {"cpu": 16, "memory_gb": 32, "disk_gb": 128, "iops": 3000},
+                "nodes": 1,
+                "db": "operator-managed pod (100 max_connections, 100 GB limit)",
+                "redis": "operator-managed pod",
+                "hub_storage": "S3 (ReadWriteMany required)",
+                "limitations": [
+                    "No redundancy - single point of failure",
+                    "Operator-deployed DB limited to 100 max_connections and 100 GB",
+                    "Must use external DB if: >1 replica of any component, >100 concurrent jobs, or >100 GB storage",
+                    "Not suitable for production workloads requiring HA",
+                ],
+                "doc_link": "https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.6/html/planning_your_installation/ocp-topologies",
+            },
+            "enterprise": {
+                "description": "Multi-worker OpenShift cluster with external services",
+                "node_spec": {"cpu": 4, "memory_gb": 16, "disk_gb": 128, "iops": 3000},
+                "min_workers": 2,
+                "external_db_spec": {
+                    "cpu": 4,
+                    "memory_gb": 16,
+                    "storage_gb": 200,
+                    "iops": 3000,
+                    "max_connections": 1024,
+                },
+                "redis": "operator-managed Redis (do not use external for AAP 2.6)",
+                "hub_storage": "S3 (ReadWriteMany required)",
+                "doc_link": "https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.6/html/planning_your_installation/ocp-topologies",
+            },
+        },
+        "containerized": {
+            "growth": {
+                "description": "Single RHEL VM with Podman - all components colocated",
+                "vm_spec": {"cpu": 4, "memory_gb": 16, "disk_gb": 60, "iops": 3000},
+                "vm_count": 1,
+                "redis": "standalone, colocated",
+                "limitations": [
+                    "No redundancy - single point of failure",
+                    "All components share a single VM's resources",
+                    "Not suitable for production workloads requiring HA",
+                    "External Redis not supported for containerized installs",
+                ],
+                "doc_link": "https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.6/html/planning_your_installation/container-topologies",
+            },
+            "enterprise": {
+                "description": "Multi-VM RHEL deployment with Podman and HA",
+                "vm_spec": {"cpu": 4, "memory_gb": 16, "disk_gb": 60, "iops": 3000},
+                "vm_layout": [
+                    {"purpose": "Platform gateway + colocated Redis", "count": 2},
+                    {"purpose": "Automation controller", "count": 2},
+                    {"purpose": "Automation hub + colocated Redis", "count": 2},
+                    {"purpose": "Event-Driven Ansible + colocated Redis", "count": 2},
+                    {"purpose": "Automation mesh execution node", "count": 2},
+                    {"purpose": "External database (managed separately)", "count": 1},
+                ],
+                "redis": "HA mode, colocated on component VMs (6 VMs min for Redis HA). External Redis not supported.",
+                "doc_link": "https://docs.redhat.com/en/documentation/red_hat_ansible_automation_platform/2.6/html/planning_your_installation/container-topologies",
+            },
+        },
+    }
+
+    def _recommend_topology(
+        self,
+        deployment_target: str,
+        execution: dict[str, Any],
+        controller: dict[str, Any],
+        database: dict[str, Any],
+        current_metrics: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Recommend growth vs enterprise topology based on computed resources."""
+        concurrent_jobs = execution.get("forks_needed", 0) / max(
+            current_metrics.get("forks_observed", 5), 1
+        )
+        db_storage = database.get("storage_gb", 0)
+        needs_multiple_controllers = controller.get("control_plane_pods", 2) > 1
+        needs_multiple_execution = execution.get("execution_pods", 2) > 2
+        num_current_controllers = current_metrics.get("num_controllers", 1)
+        managed_hosts = current_metrics.get("managed_hosts", 0)
+
+        enterprise_reasons: list[str] = []
+
+        if concurrent_jobs > 100:
+            enterprise_reasons.append(
+                f"Estimated {int(concurrent_jobs)} concurrent jobs exceeds growth DB limit of 100"
+            )
+        if db_storage > 100 and deployment_target == "ocp":
+            enterprise_reasons.append(
+                f"Estimated {db_storage} GB database exceeds operator-managed DB limit of 100 GB"
+            )
+        if needs_multiple_controllers and deployment_target == "ocp":
+            enterprise_reasons.append(
+                "Multiple controller replicas needed (growth supports only 1 replica per component)"
+            )
+        if needs_multiple_execution:
+            unit = "instances" if deployment_target == "containerized" else "pods"
+            enterprise_reasons.append(
+                f"{execution.get('execution_pods', 0)} execution {unit} needed (growth has limited capacity)"
+            )
+        if num_current_controllers > 2:
+            enterprise_reasons.append(
+                f"Current environment has {num_current_controllers} controllers indicating enterprise workload"
+            )
+        if managed_hosts > 5000:
+            enterprise_reasons.append(
+                f"{managed_hosts} managed hosts exceeds typical growth topology capacity"
+            )
+
+        growth_viable = len(enterprise_reasons) == 0
+        recommended = "growth" if growth_viable else "enterprise"
+
+        specs = self.TOPOLOGY_SPECS[deployment_target]
+        topology_info = specs[recommended]
+
+        result: dict[str, Any] = {
+            "target": deployment_target,
+            "recommended_topology": recommended,
+            "growth_viable": growth_viable,
+            "doc_link": topology_info["doc_link"],
+        }
+
+        if recommended == "enterprise":
+            result["enterprise_reasons"] = enterprise_reasons
+        else:
+            result["growth_limitations"] = topology_info.get("limitations", [])
+
+        if deployment_target == "ocp":
+            result.update(self._ocp_deployment_details(recommended, execution, database, specs))
+        else:
+            result.update(
+                self._containerized_deployment_details(recommended, execution, database, specs)
+            )
+
+        return result
+
+    def _ocp_deployment_details(
+        self,
+        topology: str,
+        execution: dict[str, Any],
+        database: dict[str, Any],
+        specs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Generate OCP-specific deployment details."""
+        details: dict[str, Any] = {}
+
+        if topology == "growth":
+            details["cluster_type"] = "Single Node OpenShift (SNO)"
+            details["node_spec"] = specs["growth"]["node_spec"]
+            details["total_nodes"] = 1
+            details["db_type"] = specs["growth"]["db"]
+            details["redis"] = "Operator-managed Redis pod (in-cluster)"
+            details["hub_storage"] = specs["growth"]["hub_storage"]
+        else:
+            worker_spec = specs["enterprise"]["node_spec"]
+            total_cpu = execution.get("total_cpu", 8) + 16  # execution + other pods
+            total_memory = execution.get("total_memory_gb", 16) + 32
+            workers_by_cpu = math.ceil(total_cpu / worker_spec["cpu"])
+            workers_by_mem = math.ceil(total_memory / worker_spec["memory_gb"])
+            worker_count = max(specs["enterprise"]["min_workers"], workers_by_cpu, workers_by_mem)
+
+            details["cluster_type"] = "Multi-worker OpenShift cluster"
+            details["worker_nodes"] = worker_count
+            details["worker_spec"] = worker_spec
+            details["external_db"] = specs["enterprise"]["external_db_spec"]
+            details["external_db"]["recommended_storage_gb"] = max(
+                200, database.get("storage_gb", 60)
+            )
+            details["redis"] = "Operator-managed Redis (do not use external — changes in AAP 2.7)"
+            details["hub_storage"] = specs["enterprise"]["hub_storage"]
+
+        return details
+
+    def _containerized_deployment_details(
+        self,
+        topology: str,
+        execution: dict[str, Any],
+        database: dict[str, Any],
+        specs: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Generate containerized (Podman) deployment details."""
+        details: dict[str, Any] = {}
+
+        if topology == "growth":
+            details["vm_count"] = 1
+            details["vm_spec"] = specs["growth"]["vm_spec"]
+            details["redis"] = "Standalone mode, colocated (external Redis not supported)"
+            details["layout"] = (
+                "All components on single VM: gateway, controller, hub, EDA, database, Redis"
+            )
+        else:
+            vm_spec = specs["enterprise"]["vm_spec"]
+            layout = specs["enterprise"]["vm_layout"]
+            # Adjust execution node count based on calculated needs
+            exec_pods = execution.get("execution_pods", 2)
+            adjusted_layout = []
+            for item in layout:
+                if "execution node" in item["purpose"].lower():
+                    adjusted_layout.append(
+                        {"purpose": item["purpose"], "count": max(item["count"], exec_pods)}
+                    )
+                else:
+                    adjusted_layout.append(item)
+
+            total_vms = sum(item["count"] for item in adjusted_layout)
+            details["vm_count"] = total_vms
+            details["vm_spec"] = vm_spec
+            details["vm_layout"] = adjusted_layout
+            details["redis"] = "HA mode colocated on component VMs (external Redis not supported)"
+            details["db_storage_recommended_gb"] = max(60, database.get("storage_gb", 60))
+
+        return details
+
+    def generate_sizing_recommendation(
+        self, current_metrics: dict[str, Any], deployment_target: str = "ocp"
+    ) -> dict[str, Any]:
         """
         Generate complete sizing recommendation for AAP 2.6 based on AAP 2.4 metrics.
         Uses official Red Hat Excel reference formulas with enhanced accuracy validation.
+
+        Args:
+            current_metrics: Workload metrics dict
+            deployment_target: "ocp" or "containerized"
         """
         # Clear any previous warnings
         self.warnings = []
@@ -700,6 +921,26 @@ class AAP26SizingCalculator:
         hub = self.calculate_automation_hub_resources(current_metrics)
         eda = self.calculate_eda_resources(current_metrics)
         redis = self.calculate_redis_resources(current_metrics)
+
+        # For containerized, Redis is always colocated on component VMs (not standalone)
+        if deployment_target == "containerized":
+            redis = {
+                "type": "colocated_ha",
+                "total_cpu": 0,
+                "total_memory_gb": 0,
+                "note": "Redis runs colocated on gateway, hub, and EDA VMs (external Redis not supported)",
+            }
+            # Each VM in containerized is 4 CPU / 16 GB — enforce per-instance minimums
+            for comp in [gateway, controller, execution, hub, eda]:
+                if comp.get("cpu_per_pod", 0) < 4:
+                    comp["cpu_per_pod"] = 4
+                if comp.get("memory_per_pod_gb", 0) < 16:
+                    comp["memory_per_pod_gb"] = 16
+                # Recompute totals
+                pod_key = next((k for k in comp if k.endswith("_pods")), None)
+                if pod_key:
+                    comp["total_cpu"] = comp[pod_key] * comp["cpu_per_pod"]
+                    comp["total_memory_gb"] = comp[pod_key] * comp["memory_per_pod_gb"]
 
         # Calculate totals
         total_cpu = (
@@ -726,17 +967,13 @@ class AAP26SizingCalculator:
         results_warnings = self.validate_results(execution, controller, database)
         all_warnings = self.warnings + results_warnings
 
-        # Determine topology
-        managed_hosts = current_metrics.get("managed_hosts", 0)
-        if managed_hosts > 10000:
-            topology = "enterprise"
-        elif managed_hosts > 5000:
-            topology = "enterprise_recommended"
-        else:
-            topology = "growth"
+        # Recommend topology based on deployment target and computed resources
+        deployment = self._recommend_topology(
+            deployment_target, execution, controller, database, current_metrics
+        )
 
         return {
-            "topology": topology,
+            "deployment": deployment,
             "components": {
                 "platform_gateway": gateway,
                 "automation_controller_control_plane": controller,
@@ -756,7 +993,7 @@ class AAP26SizingCalculator:
                     + execution["execution_pods"]
                     + hub["hub_pods"]
                     + eda["eda_pods"]
-                    + redis.get("total_nodes", redis.get("nodes", 1))
+                    + redis.get("total_nodes", redis.get("nodes", 0))
                 ),
             },
             "formulas_used": {
@@ -768,17 +1005,22 @@ class AAP26SizingCalculator:
                 "event_forks": "hosts × jobs_per_host_per_day × tasks_per_job × events/task (verbosity-based) × duration / allowed_hours",
                 "database_storage": "hosts × jobs_per_host_per_day × tasks_per_job × events/task × retention_days × 2KB / 1024",
             },
-            "warnings": all_warnings,  # NEW: Include validation warnings
-            "deployment_notes": self._get_deployment_notes(current_metrics, execution, controller),
+            "warnings": all_warnings,
+            "deployment_notes": self._get_deployment_notes(
+                current_metrics, execution, controller, deployment_target
+            ),
         }
 
     def _get_deployment_notes(
-        self, metrics: dict[str, Any], execution: dict[str, Any], controller: dict[str, Any]
+        self,
+        metrics: dict[str, Any],
+        execution: dict[str, Any],
+        controller: dict[str, Any],
+        deployment_target: str = "ocp",
     ) -> list:
         """Generate deployment notes and recommendations."""
         notes = []
 
-        # Calculation method note
         notes.append("✓ Calculations based on official Red Hat Excel reference formulas")
         notes.append(
             "✓ Uses time-based concurrency: forks = hosts × jobs/host/day × duration / allowed_hours"
@@ -786,24 +1028,34 @@ class AAP26SizingCalculator:
         notes.append("✓ Control plane uses AVERAGED result of event processing AND job management")
         notes.append(f"✓ Execution plane: {execution.get('forks_needed', 0)} forks needed")
         notes.append(
-            f"✓ Control plane: {controller.get('event_forks', 0)} event forks, {controller.get('forks_for_jobs', 0)} job forks"
+            f"✓ Control plane: {controller.get('event_forks', 0)} event forks, "
+            f"{controller.get('forks_for_jobs', 0)} job forks"
         )
 
-        # General recommendations
         notes.append("All values include appropriate headroom for peaks and growth")
-        notes.append("Minimum 2 replicas per service recommended for high availability")
-        notes.append("Container deployments typically 20-30% more efficient than VMs")
 
-        # Specific recommendations
+        if deployment_target == "ocp":
+            notes.append(
+                "OCP: Redis is operator-managed (do not use external Redis — this changes in AAP 2.7)"
+            )
+            notes.append("OCP: Automation hub requires S3 or ReadWriteMany storage")
+            notes.append(
+                "OCP: Operator-deployed DB limited to 100 connections / 100 GB — use external DB for enterprise"
+            )
+        else:
+            notes.append(
+                "Containerized: External Redis is NOT supported — Redis must be colocated on component VMs"
+            )
+            notes.append("Containerized: Enterprise topology requires 6+ VMs for Redis HA")
+            notes.append(
+                "Containerized: Each VM minimum 4 CPU / 16 GB RAM / 60 GB disk / 3000 IOPS"
+            )
+
         managed_hosts = metrics.get("managed_hosts", 0)
         if managed_hosts > 20000:
-            notes.append(
-                "Consider separate PostgreSQL instances per component for better isolation"
-            )
-            notes.append("Use clustered Redis (3 primary + 3 replica) for HA")
-            notes.append("Implement load balancing for API endpoints")
+            notes.append("Consider separate PostgreSQL instances per component for isolation")
+            notes.append("Implement load balancing for platform gateway endpoints")
 
-        # Migration notes
         notes.append("Test in non-production environment before migration")
         notes.append("Monitor and adjust resources post-migration based on actual usage")
         notes.append("Validate sizing with Red Hat support for production deployments")

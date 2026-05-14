@@ -27,6 +27,8 @@ import {
   Label,
   Split,
   SplitItem,
+  List,
+  ListItem,
 } from '@patternfly/react-core';
 import { api } from '../api/client';
 
@@ -35,6 +37,7 @@ interface SizingResult {
   execution_nodes: Record<string, unknown>;
   controller: Record<string, unknown>;
   database: Record<string, unknown>;
+  deployment: DeploymentRecommendation | null;
   automation_hub: Record<string, unknown> | null;
   gateway: Record<string, unknown> | null;
   eda: Record<string, unknown> | null;
@@ -43,13 +46,39 @@ interface SizingResult {
   validation_warnings: string[];
 }
 
+interface DeploymentRecommendation {
+  target: string;
+  recommended_topology: string;
+  growth_viable: boolean;
+  doc_link: string;
+  enterprise_reasons?: string[];
+  growth_limitations?: string[];
+  // OCP fields
+  cluster_type?: string;
+  node_spec?: Record<string, number>;
+  total_nodes?: number;
+  worker_nodes?: number;
+  worker_spec?: Record<string, number>;
+  external_db?: Record<string, unknown>;
+  db_type?: string;
+  redis?: string;
+  hub_storage?: string;
+  // Containerized fields
+  vm_count?: number;
+  vm_spec?: Record<string, number>;
+  vm_layout?: { purpose: string; count: number }[];
+  layout?: string;
+  db_storage_recommended_gb?: number;
+}
+
 interface DynamicSizingResult {
   mode: string;
+  deployment_target: string;
   source_observed: Record<string, unknown>;
   derived_inputs: Record<string, unknown>;
   headroom_multiplier: number;
   recommendation: {
-    topology: string;
+    deployment: DeploymentRecommendation;
     components: Record<string, Record<string, unknown>>;
     summary: Record<string, unknown>;
     warnings: string[];
@@ -69,6 +98,9 @@ interface ConnectionItem {
 
 export function Sizing() {
   const [activeTab, setActiveTab] = useState<number>(0);
+
+  // === Shared State ===
+  const [deploymentTarget, setDeploymentTarget] = useState('ocp');
 
   // === Manual Mode State ===
   const [managedHosts, setManagedHosts] = useState('5000');
@@ -114,7 +146,7 @@ export function Sizing() {
         setSelectedConnection(source?.id || conns[0].id);
       }
     } catch {
-      // silently fail - connections may not be configured
+      // connections may not be configured
     } finally {
       setConnectionsLoading(false);
     }
@@ -133,6 +165,7 @@ export function Sizing() {
         verbosity_level: parseInt(verbosity),
         allowed_hours_per_day: parseFloat(hoursPerDay),
         peak_pattern: peakPattern,
+        deployment_target: deploymentTarget,
         num_controllers: parseInt(numControllers),
         concurrent_jobs: parseInt(concurrentJobs),
         pending_jobs: parseInt(pendingJobs),
@@ -158,7 +191,7 @@ export function Sizing() {
     setDynamicResult(null);
     setDynamicLoading(true);
     try {
-      const res = await api.calculateDynamicSizing(selectedConnection, parseInt(historyDays));
+      const res = await api.calculateDynamicSizing(selectedConnection, parseInt(historyDays), deploymentTarget);
       setDynamicResult(res as DynamicSizingResult);
     } catch (err) {
       setDynamicError(err instanceof Error ? err.message : 'Dynamic sizing failed');
@@ -171,10 +204,31 @@ export function Sizing() {
     if (val === null || val === undefined) return 'N/A';
     if (typeof val === 'object') return JSON.stringify(val);
     if (typeof val === 'number') return Number.isInteger(val) ? val.toLocaleString() : val.toFixed(2);
-    return String(val);
+    let str = String(val);
+    if (deploymentTarget === 'containerized') {
+      str = str.replace(/\bpods\b/gi, 'instances').replace(/\bpod\b/gi, 'instance');
+    }
+    return str;
   };
 
-  const fmtKey = (key: string) => key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const podTerminologyMap: Record<string, string> = {
+    'execution_pods': 'Execution Instances',
+    'control_plane_pods': 'Control Plane Instances',
+    'hub_pods': 'Hub Instances',
+    'gateway_pods': 'Gateway Instances',
+    'eda_pods': 'EDA Instances',
+    'cpu_per_pod': 'CPU Per Instance',
+    'memory_per_pod_gb': 'Memory Per Instance (GB)',
+    'estimated_pods': 'Total Service Instances',
+    'total_nodes': 'Redis Instances',
+  };
+
+  const fmtKey = (key: string) => {
+    if (deploymentTarget === 'containerized' && podTerminologyMap[key]) {
+      return podTerminologyMap[key];
+    }
+    return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
 
   const renderResultCard = (title: string, data: Record<string, unknown> | null, color?: string) => {
     if (!data) return null;
@@ -196,12 +250,171 @@ export function Sizing() {
     );
   };
 
+  const renderDeploymentCard = (deployment: DeploymentRecommendation | null | undefined) => {
+    if (!deployment) return null;
+    const isEnterprise = deployment.recommended_topology === 'enterprise';
+    const targetLabel = deployment.target === 'ocp' ? 'OpenShift (Operator)' : 'Containerized (Podman)';
+
+    return (
+      <Card style={{ marginBottom: 16, borderTop: `3px solid ${isEnterprise ? '#c9190b' : '#3e8635'}` }}>
+        <CardTitle>
+          <Split hasGutter>
+            <SplitItem>Topology Recommendation</SplitItem>
+            <SplitItem>
+              <Label color={isEnterprise ? 'red' : 'green'} isCompact>
+                {deployment.recommended_topology.toUpperCase()}
+              </Label>
+              <Label color="blue" isCompact style={{ marginLeft: 8 }}>
+                {targetLabel}
+              </Label>
+            </SplitItem>
+          </Split>
+        </CardTitle>
+        <CardBody>
+          <DescriptionList isHorizontal isCompact>
+            {deployment.cluster_type && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Cluster Type</DescriptionListTerm>
+                <DescriptionListDescription>{deployment.cluster_type}</DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.worker_nodes && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Worker Nodes</DescriptionListTerm>
+                <DescriptionListDescription>{deployment.worker_nodes}</DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.worker_spec && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Per Worker</DescriptionListTerm>
+                <DescriptionListDescription>
+                  {deployment.worker_spec.cpu} CPU / {deployment.worker_spec.memory_gb} GB RAM / {deployment.worker_spec.disk_gb} GB disk
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.total_nodes !== undefined && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Total Nodes</DescriptionListTerm>
+                <DescriptionListDescription>{deployment.total_nodes}</DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.node_spec && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Node Spec (SNO)</DescriptionListTerm>
+                <DescriptionListDescription>
+                  {deployment.node_spec.cpu} CPU / {deployment.node_spec.memory_gb} GB RAM / {deployment.node_spec.disk_gb} GB disk
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.vm_count !== undefined && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Total VMs</DescriptionListTerm>
+                <DescriptionListDescription>{deployment.vm_count}</DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.vm_spec && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Per VM</DescriptionListTerm>
+                <DescriptionListDescription>
+                  {deployment.vm_spec.cpu} CPU / {deployment.vm_spec.memory_gb} GB RAM / {deployment.vm_spec.disk_gb} GB disk
+                </DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.redis && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Redis</DescriptionListTerm>
+                <DescriptionListDescription>{deployment.redis}</DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.hub_storage && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Hub Storage</DescriptionListTerm>
+                <DescriptionListDescription>{deployment.hub_storage}</DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+            {deployment.db_type && (
+              <DescriptionListGroup>
+                <DescriptionListTerm>Database</DescriptionListTerm>
+                <DescriptionListDescription>{deployment.db_type}</DescriptionListDescription>
+              </DescriptionListGroup>
+            )}
+          </DescriptionList>
+
+          {deployment.external_db && (
+            <div style={{ marginTop: 12 }}>
+              <Text component="small"><strong>External Database Requirements:</strong></Text>
+              <DescriptionList isHorizontal isCompact style={{ marginTop: 4 }}>
+                {Object.entries(deployment.external_db).filter(([,v]) => typeof v !== 'object').map(([k, v]) => (
+                  <DescriptionListGroup key={k}>
+                    <DescriptionListTerm>{fmtKey(k)}</DescriptionListTerm>
+                    <DescriptionListDescription>{fmtVal(v)}</DescriptionListDescription>
+                  </DescriptionListGroup>
+                ))}
+              </DescriptionList>
+            </div>
+          )}
+
+          {deployment.vm_layout && (
+            <div style={{ marginTop: 12 }}>
+              <Text component="small"><strong>VM Layout:</strong></Text>
+              <List isPlain style={{ marginTop: 4 }}>
+                {deployment.vm_layout.map((item, i) => (
+                  <ListItem key={i}>{item.count}x {item.purpose}</ListItem>
+                ))}
+              </List>
+            </div>
+          )}
+
+          {deployment.layout && (
+            <div style={{ marginTop: 12 }}>
+              <Text component="small"><strong>Layout:</strong> {deployment.layout}</Text>
+            </div>
+          )}
+
+          {isEnterprise && deployment.enterprise_reasons && (
+            <Alert variant="info" isInline isPlain title="Why enterprise topology" style={{ marginTop: 12 }}>
+              <List isPlain>
+                {deployment.enterprise_reasons.map((r, i) => <ListItem key={i}>{r}</ListItem>)}
+              </List>
+            </Alert>
+          )}
+
+          {!isEnterprise && deployment.growth_limitations && (
+            <Alert variant="warning" isInline isPlain title="Growth topology limitations" style={{ marginTop: 12 }}>
+              <List isPlain>
+                {deployment.growth_limitations.map((l, i) => <ListItem key={i}>{l}</ListItem>)}
+              </List>
+            </Alert>
+          )}
+
+          <div style={{ marginTop: 12 }}>
+            <a href={deployment.doc_link} target="_blank" rel="noopener noreferrer">
+              Red Hat Tested Topology Documentation
+            </a>
+          </div>
+        </CardBody>
+      </Card>
+    );
+  };
+
+  const renderDeploymentTargetSelector = (id: string) => (
+    <FormGroup label="Deployment Target" isRequired fieldId={id}>
+      <FormSelect id={id} value={deploymentTarget} onChange={(_e, v) => setDeploymentTarget(v)}>
+        <FormSelectOption value="ocp" label="OpenShift Container Platform (Operator)" />
+        <FormSelectOption value="containerized" label="Containerized (Podman on RHEL)" />
+      </FormSelect>
+    </FormGroup>
+  );
+
   const renderManualTab = () => (
     <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 16 }}>
       <Card style={{ flex: '0 0 420px' }}>
         <CardTitle>Input Parameters</CardTitle>
         <CardBody>
           <Form>
+            <FormSection title="Deployment">
+              {renderDeploymentTargetSelector('manual-target')}
+            </FormSection>
             <FormSection title="Workload">
               <FormGroup label="Managed Hosts" isRequired fieldId="hosts">
                 <TextInput id="hosts" type="number" value={managedHosts} onChange={(_e, v) => setManagedHosts(v)} />
@@ -275,7 +488,7 @@ export function Sizing() {
         {error && <Alert variant="danger" isInline title={error} style={{ marginBottom: 16 }} />}
 
         {result && result.warnings.length > 0 && (
-          <Alert variant="warning" isInline title="Input Warnings" style={{ marginBottom: 16 }}>
+          <Alert variant="warning" isInline title="Sizing Warnings" style={{ marginBottom: 16 }}>
             <ul>{result.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
           </Alert>
         )}
@@ -285,6 +498,8 @@ export function Sizing() {
             <ul>{result.validation_warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
           </Alert>
         )}
+
+        {result && renderDeploymentCard(result.deployment)}
 
         {result && (
           <Gallery hasGutter minWidths={{ default: '300px' }}>
@@ -322,6 +537,7 @@ export function Sizing() {
             </Alert>
           ) : (
             <Form>
+              {renderDeploymentTargetSelector('dyn-target')}
               <FormGroup label="Source AAP Connection" isRequired fieldId="dyn-conn">
                 <FormSelect
                   id="dyn-conn"
@@ -434,6 +650,9 @@ export function Sizing() {
               </CardBody>
             </Card>
 
+            {/* Topology Recommendation */}
+            {renderDeploymentCard(dynamicResult.recommendation.deployment)}
+
             {/* Derived Inputs */}
             <ExpandableSection toggleText="Derived Calculator Inputs" style={{ marginBottom: 16 }}>
               <Card>
@@ -511,7 +730,7 @@ export function Sizing() {
     <>
       <Title headingLevel="h1" size="2xl">Sizing Calculator</Title>
       <TextContent style={{ marginBottom: 16 }}>
-        <Text>Calculate AAP 2.6 infrastructure sizing based on Red Hat official formulas.</Text>
+        <Text>Calculate AAP 2.6 infrastructure sizing based on Red Hat official formulas and tested topologies.</Text>
       </TextContent>
 
       <Tabs activeKey={activeTab} onSelect={(_e, idx) => setActiveTab(idx as number)}>
