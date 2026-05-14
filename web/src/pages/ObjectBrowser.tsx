@@ -57,7 +57,7 @@ export function ObjectBrowser() {
       <Title headingLevel="h1" size="2xl">Object Browser</Title>
       <Form isHorizontal onSubmit={(e) => e.preventDefault()} style={{ marginBottom: 16, maxWidth: 600, marginTop: 8 }}>
         <FormGroup label="Connection" fieldId="conn-select">
-          <FormSelect id="conn-select" value={selectedConn} onChange={(_e, v) => { setSelectedConn(v); setSelectedType(''); }}>
+          <FormSelect id="conn-select" value={selectedConn} onChange={(_e, v) => { setSelectedConn(v); setSelectedType(''); setResources([]); setResourceTypes([]); }}>
             <FormSelectOption value="" label="-- Select connection --" isDisabled />
             {connections.map(c => (
               <FormSelectOption key={c.id} value={c.id} label={`${c.name} (${c.type.toUpperCase()})`} />

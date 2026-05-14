@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import httpx
 from sqlalchemy.orm import Session
 
+from aap_migration.api.crypto import decrypt_token, encrypt_token
 from aap_migration.api.models import Connection
 from aap_migration.api.schemas import ConnectionCreate, ConnectionUpdate, TestResult
 
@@ -32,7 +33,7 @@ class ConnectionService:
             type=data.type,
             role=data.role,
             url=base_url,
-            token=data.token,
+            token=encrypt_token(data.token) if data.token else None,
             verify_ssl=data.verify_ssl,
             api_prefix=api_prefix,
         )
@@ -47,6 +48,11 @@ class ConnectionService:
     def get(self, connection_id: str) -> Connection | None:
         return self.db.query(Connection).filter(Connection.id == connection_id).first()
 
+    def get_decrypted_token(self, conn: Connection) -> str | None:
+        if not conn.token:
+            return None
+        return decrypt_token(conn.token)
+
     def update(self, connection_id: str, data: ConnectionUpdate) -> Connection | None:
         conn = self.get(connection_id)
         if not conn:
@@ -55,10 +61,11 @@ class ConnectionService:
         if "url" in update_data and update_data["url"]:
             base_url, api_prefix = _normalize_url(update_data["url"])
             update_data["url"] = base_url
-            if api_prefix:
-                update_data["api_prefix"] = api_prefix
+            update_data["api_prefix"] = api_prefix
         if "token" in update_data and update_data["token"] in (None, "", "********"):
             del update_data["token"]
+        elif "token" in update_data and update_data["token"]:
+            update_data["token"] = encrypt_token(update_data["token"])
         for key, value in update_data.items():
             setattr(conn, key, value)
         self.db.commit()
@@ -80,6 +87,7 @@ class ConnectionService:
         auth_error = None
         version = None
         api_prefix = conn.api_prefix
+        token = self.get_decrypted_token(conn)
 
         if api_prefix:
             api_prefixes = [api_prefix]
@@ -110,7 +118,7 @@ class ConnectionService:
             try:
                 resp = httpx.get(
                     f"{conn.url}{api_prefix}/me/",
-                    headers={"Authorization": f"Bearer {conn.token}"},
+                    headers={"Authorization": f"Bearer {token}"},
                     verify=conn.verify_ssl,
                     timeout=10,
                 )

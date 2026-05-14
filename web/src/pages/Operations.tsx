@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from '@patternfly/react-core';
 import TimesIcon from '@patternfly/react-icons/dist/esm/icons/times-icon';
+import ExternalLinkAltIcon from '@patternfly/react-icons/dist/esm/icons/external-link-alt-icon';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { LogViewer } from '../components/LogViewer';
@@ -187,6 +188,15 @@ export function Operations() {
               <Title headingLevel="h3">
                 {job.connName} — {job.operation}
               </Title>
+            </SplitItem>
+            <SplitItem>
+              <Button
+                variant="link"
+                icon={<ExternalLinkAltIcon />}
+                onClick={() => navigate(`/jobs/${job.id}`)}
+              >
+                Open in Jobs
+              </Button>
             </SplitItem>
             <SplitItem>
               <Button variant="plain" aria-label="Dismiss" onClick={() => dismissJob(job.id)}>

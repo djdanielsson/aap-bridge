@@ -203,6 +203,7 @@ schemas/
 xformed/
 sql/
 migrations/
+scripts/
 
 # Documentation PDFs (API references, etc.)
 docs/*.pdf
@@ -240,3 +241,4 @@ tests/integration/files/manifest/*.zip
 
 # Local-only project metadata
 project.yaml
+.secret_key

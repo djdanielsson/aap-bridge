@@ -70,9 +70,11 @@ class AnalysisService:
 
     def start_analysis(self, conn: Connection) -> str:
         job_id = self._create_job(conn.id)
+        from aap_migration.api.crypto import decrypt_token
+
         snap = {
             "url": conn.url,
-            "token": conn.token,
+            "token": decrypt_token(conn.token) if conn.token else None,
             "verify_ssl": conn.verify_ssl,
             "api_prefix": conn.api_prefix,
         }

@@ -5,13 +5,13 @@ import {
   Button,
 } from '@patternfly/react-core';
 import { Table, Thead, Tbody, Tr, Th, Td } from '@patternfly/react-table';
-import { LogViewer } from '../components/LogViewer';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Job } from '../types/resources';
 
 export function Jobs() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const loadJobs = useCallback(async () => {
     const data = await api.listJobs();
@@ -29,6 +29,7 @@ export function Jobs() {
       case 'running': return 'blue';
       case 'completed': return 'green';
       case 'failed': return 'red';
+      case 'cancelled': return 'orange';
       default: return 'grey';
     }
   };
@@ -62,7 +63,12 @@ export function Jobs() {
         </Thead>
         <Tbody>
           {jobs.map(job => (
-            <Tr key={job.id}>
+            <Tr
+              key={job.id}
+              isClickable
+              onRowClick={() => navigate(`/jobs/${job.id}`)}
+              style={{ cursor: 'pointer' }}
+            >
               <Td>{job.type}</Td>
               <Td>
                 <Label color={statusColor(job.status)}>{job.status}</Label>
@@ -70,8 +76,8 @@ export function Jobs() {
               <Td>{formatTime(job.started_at)}</Td>
               <Td>{formatDuration(job)}</Td>
               <Td>
-                <Button variant="link" onClick={() => setSelectedJob(job.id)}>
-                  View Logs
+                <Button variant="link" onClick={(e) => { e.stopPropagation(); navigate(`/jobs/${job.id}`); }}>
+                  View
                 </Button>
               </Td>
             </Tr>
@@ -83,13 +89,6 @@ export function Jobs() {
           )}
         </Tbody>
       </Table>
-
-      {selectedJob && (
-        <div style={{ marginTop: 24 }}>
-          <Title headingLevel="h3">Job Logs</Title>
-          <LogViewer jobId={selectedJob} />
-        </div>
-      )}
     </>
   );
 }

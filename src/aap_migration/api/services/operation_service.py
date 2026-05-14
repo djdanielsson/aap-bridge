@@ -75,11 +75,13 @@ class OperationService:
         root.removeHandler(handler)
 
     def _snapshot_connection(self, conn: Connection) -> dict:
+        from aap_migration.api.crypto import decrypt_token
+
         return {
             "id": conn.id,
             "name": conn.name,
             "url": conn.url,
-            "token": conn.token,
+            "token": decrypt_token(conn.token) if conn.token else None,
             "verify_ssl": conn.verify_ssl,
             "type": conn.type,
             "api_prefix": conn.api_prefix,

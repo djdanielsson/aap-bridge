@@ -259,11 +259,13 @@ class MigrationService:
         root.removeHandler(handler)
 
     def _snapshot_connection(self, conn: Connection) -> dict:
+        from aap_migration.api.crypto import decrypt_token
+
         return {
             "id": conn.id,
             "name": conn.name,
             "url": conn.url,
-            "token": conn.token,
+            "token": decrypt_token(conn.token) if conn.token else None,
             "verify_ssl": conn.verify_ssl,
             "type": conn.type,
             "api_prefix": conn.api_prefix,
@@ -431,8 +433,66 @@ class MigrationService:
                     show_stats=False,
                 )
 
+                # Apply exclusions: mark excluded resources as skipped and
+                # determine if any full resource types should be skipped entirely
+                skip_phases: list[str] = []
+                if exclusions:
+                    # Get the preview data to know total counts per type
+                    preview_job = None
+                    db = self.session_factory()
+                    try:
+                        from aap_migration.api.models import Job
+
+                        preview_job = db.query(Job).filter(Job.id == preview_job_id).first()
+                    finally:
+                        db.close()
+
+                    preview_resources = {}
+                    if preview_job and preview_job.job_metadata:
+                        preview_resources = preview_job.job_metadata.get("resources", {})
+
+                    for resource_type, excluded_ids in exclusions.items():
+                        if not excluded_ids:
+                            continue
+
+                        # Check if ALL resources of this type are excluded
+                        type_resources = preview_resources.get(resource_type, [])
+                        all_ids = (
+                            {r.get("source_id") for r in type_resources}
+                            if type_resources
+                            else set()
+                        )
+
+                        if all_ids and set(excluded_ids) >= all_ids:
+                            skip_phases.append(resource_type)
+                            self.job_service.append_log(
+                                job_id,
+                                f"Skipping entire phase: {resource_type} (all resources excluded)",
+                            )
+                        else:
+                            # Mark individual resources as skipped in state
+                            for source_id in excluded_ids:
+                                try:
+                                    state.create_source_mapping(
+                                        resource_type,
+                                        source_id,
+                                        source_name=f"excluded-{source_id}",
+                                    )
+                                    state.mark_skipped(
+                                        resource_type,
+                                        source_id,
+                                        "Excluded by user in migration preview",
+                                    )
+                                except Exception:
+                                    pass
+                            self.job_service.append_log(
+                                job_id,
+                                f"Excluded {len(excluded_ids)} {resource_type} resource(s) from migration",
+                            )
+
                 self.job_service.append_log(job_id, "Running migration...")
                 summary = await coordinator.migrate_all(
+                    skip_phases=skip_phases if skip_phases else None,
                     generate_report=True,
                     report_dir="./reports",
                 )

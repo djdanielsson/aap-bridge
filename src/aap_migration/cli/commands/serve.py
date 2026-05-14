@@ -28,9 +28,20 @@ def serve(ctx: click.Context, host: str, port: int, reload: bool) -> None:
         )
         db_url = "sqlite:///aap_bridge.db"
 
+    os.environ["MIGRATION_STATE_DB_PATH"] = db_url
     click.echo(f"Starting AAP Bridge API server on {host}:{port}")
 
-    from aap_migration.api.app import create_app
+    if reload:
+        uvicorn.run(
+            "aap_migration.api.app:create_app",
+            factory=True,
+            host=host,
+            port=port,
+            reload=True,
+            reload_dirs=["src"],
+        )
+    else:
+        from aap_migration.api.app import create_app
 
-    app = create_app(db_url=db_url)
-    uvicorn.run(app, host=host, port=port, reload=reload)
+        app = create_app(db_url=db_url)
+        uvicorn.run(app, host=host, port=port)

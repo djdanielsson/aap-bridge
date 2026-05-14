@@ -1,7 +1,7 @@
 .PHONY: help install install-dev clean format lint typecheck test test-unit test-integration \
        test-performance test-cov test-watch check pre-commit docs docs-serve run-example \
        init-env setup version venv install-editable all \
-       build build-api build-ui build-all up up-dev down shell shell-engine logs \
+       build build-api build-ui build-dev prepare-pgdata up up-dev down shell shell-engine logs \
        c-test c-lint c-format c-typecheck c-check \
        web-install web-dev web-build serve populate \
        build-builder build-aap-bases build-aap build-aap-all \
@@ -139,10 +139,14 @@ all: check docs ## Run all checks and build docs
 #  Container deployment (requires podman)
 # ===========================================================================
 
-COMPOSE        := podman compose
-BRIDGE_SVC     := bridge
-BRIDGE_IMAGE   := localhost/aap-bridge:latest
-UI_IMAGE       := localhost/aap-bridge-ui:latest
+COMPOSE          := podman compose
+BRIDGE_SVC       := bridge
+BRIDGE_IMAGE     := localhost/aap-bridge:latest
+BRIDGE_DEV_IMAGE := localhost/aap-bridge-dev:latest
+BRIDGE_API_IMAGE := localhost/aap-bridge-api:latest
+UI_IMAGE         := localhost/aap-bridge-ui:latest
+PROJECT_NAME     := $(notdir $(CURDIR))
+PGDATA_VOLUME    := $(PROJECT_NAME)_pgdata
 
 HOST     ?= https://localhost:10443
 TOKEN    ?=
@@ -152,22 +156,31 @@ define run-bridge
 	$(COMPOSE) exec $(BRIDGE_SVC)
 endef
 
-build: ## Build aap-bridge container image (base + dev)
+build: ## Build all container images (base, dev, api, ui)
 	podman build -t $(BRIDGE_IMAGE) --target base .
-	podman build -t $(BRIDGE_IMAGE)-dev -f Containerfile.dev .
-
-build-api: ## Build engine+API container image
-	podman build -t $(BRIDGE_IMAGE)-api --target api .
-
-build-ui: ## Build UI container image
+	podman build -t $(BRIDGE_DEV_IMAGE) -f Containerfile.dev .
+	podman build -t $(BRIDGE_API_IMAGE) --target api .
 	podman build -t $(UI_IMAGE) -f Containerfile.ui .
 
-build-all: build-api build-ui ## Build engine + UI container images
+build-api: ## Build engine+API container image only
+	podman build -t $(BRIDGE_API_IMAGE) --target api .
 
-up: ## Start db + engine + ui (web interface)
+build-ui: ## Build UI container image only
+	podman build -t $(UI_IMAGE) -f Containerfile.ui .
+
+build-dev: ## Build dev container image only
+	podman build -t $(BRIDGE_DEV_IMAGE) -f Containerfile.dev .
+
+prepare-pgdata: ## Prepare PostgreSQL volume ownership for rootless Podman
+	@podman volume inspect $(PGDATA_VOLUME) >/dev/null 2>&1 || podman volume create $(PGDATA_VOLUME) >/dev/null
+	@podman unshare chown -R 26:26 "$$(podman volume inspect $(PGDATA_VOLUME) --format '{{.Mountpoint}}')"
+
+up: prepare-pgdata ## Start db + engine + ui (web interface)
+	@touch .secret_key
 	$(COMPOSE) up -d db engine ui
 
-up-dev: ## Start db + bridge (CLI dev container)
+up-dev: prepare-pgdata ## Start db + bridge (CLI dev container)
+	@touch .secret_key
 	$(COMPOSE) up -d db bridge
 
 down: ## Stop all containers

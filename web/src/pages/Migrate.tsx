@@ -17,6 +17,8 @@ import {
   FormSelectOption,
 } from '@patternfly/react-core';
 import TimesIcon from '@patternfly/react-icons/dist/esm/icons/times-icon';
+import ExternalLinkAltIcon from '@patternfly/react-icons/dist/esm/icons/external-link-alt-icon';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { LogViewer } from '../components/LogViewer';
 import { MigrationPreview } from '../components/MigrationPreview';
@@ -39,6 +41,7 @@ export function Migrate() {
   const [cancelling, setCancelling] = useState(false);
   const [migrationDone, setMigrationDone] = useState(false);
   const [clearMsg, setClearMsg] = useState('');
+  const navigate = useNavigate();
 
   const loadConnections = useCallback(async () => {
     const conns = await api.listConnections() as Connection[];
@@ -259,6 +262,15 @@ export function Migrate() {
                 <SplitItem isFilled>
                   <Title headingLevel="h3">Preview Log</Title>
                 </SplitItem>
+                <SplitItem>
+                  <Button
+                    variant="link"
+                    icon={<ExternalLinkAltIcon />}
+                    onClick={() => navigate(`/jobs/${previewJobId}`)}
+                  >
+                    Open in Jobs
+                  </Button>
+                </SplitItem>
               </Split>
               <LogViewer jobId={previewJobId} />
             </div>
@@ -334,6 +346,15 @@ export function Migrate() {
                       {cancelling ? 'Cancelling...' : 'Cancel Migration'}
                     </Button>
                   )}
+                </SplitItem>
+                <SplitItem>
+                  <Button
+                    variant="link"
+                    icon={<ExternalLinkAltIcon />}
+                    onClick={() => navigate(`/jobs/${runJobId}`)}
+                  >
+                    Open in Jobs
+                  </Button>
                 </SplitItem>
                 <SplitItem>
                   <Button variant="plain" aria-label="Back" onClick={handleBack}>

@@ -13,6 +13,7 @@ export interface Job {
   finished_at?: string;
   error?: string;
   output: string[];
+  job_metadata?: Record<string, unknown>;
 }
 
 export interface MigrationResource {

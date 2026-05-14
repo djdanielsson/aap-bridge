@@ -70,6 +70,12 @@
       {{ ((_token_result_c if _installer_method == 'containerized' else _token_result).stdout
           | default('')) | trim }}
 
+- name: Ensure pair directory exists
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/../generated/pairs/{{ pair_id }}"
+    state: directory
+    mode: "0755"
+
 - name: Save token to file
   ansible.builtin.copy:
     content: "{{ _api_token_value }}"

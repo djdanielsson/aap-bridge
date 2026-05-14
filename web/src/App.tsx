@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useLocation, Link } from 'react-router-dom';
 import {
   Page,
@@ -40,10 +40,9 @@ function useTheme() {
     document.documentElement.classList.toggle('pf-v5-theme-dark', next);
   };
 
-  // Apply on mount
-  useState(() => {
+  useEffect(() => {
     document.documentElement.classList.toggle('pf-v5-theme-dark', dark);
-  });
+  }, [dark]);
 
   return { dark, toggle };
 }
@@ -52,6 +51,7 @@ import { Operations } from './pages/Operations';
 import { Migrate } from './pages/Migrate';
 import { ObjectBrowser } from './pages/ObjectBrowser';
 import { Jobs } from './pages/Jobs';
+import { JobDetail } from './pages/JobDetail';
 import { Analysis } from './pages/Analysis';
 import { Sizing } from './pages/Sizing';
 
@@ -212,6 +212,7 @@ export function App() {
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/sizing" element={<Sizing />} />
             <Route path="/jobs" element={<Jobs />} />
+            <Route path="/jobs/:id" element={<JobDetail />} />
           </Routes>
         </PageSection>
       </Page>

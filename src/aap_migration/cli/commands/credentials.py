@@ -182,7 +182,7 @@ def migrate_credentials(ctx: MigrationContext, dry_run: bool, report_dir: str):
         echo_warning("Note: This will migrate organizations and credential types as dependencies")
 
         result = await coordinator.migrate_all(
-            only_phases=["organizations", "credentials"],
+            only_phases=["organizations", "credential_types", "credentials"],
             generate_report=True,
             report_dir=report_dir,
         )
