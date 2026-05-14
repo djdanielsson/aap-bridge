@@ -1,3 +1,5 @@
+import type { PreviewStatusResponse } from '../types/resources';
+
 const BASE = '';
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -31,7 +33,7 @@ export const api = {
   migrationPreview: (sourceId: string, destinationId: string) =>
     request<{ job_id: string }>('POST', '/api/migrate/preview', { source_id: sourceId, destination_id: destinationId }),
   getMigrationPreview: (jobId: string) =>
-    request<unknown>('GET', `/api/migrate/preview/${jobId}`),
+    request<PreviewStatusResponse>('GET', `/api/migrate/preview/${jobId}`),
   migrationRun: (sourceId: string, destinationId: string, previewJobId: string, exclude?: Record<string, string[]>) =>
     request<{ job_id: string }>('POST', '/api/migrate/run', {
       source_id: sourceId,

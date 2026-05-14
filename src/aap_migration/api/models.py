@@ -4,6 +4,7 @@ from uuid import uuid4
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from aap_migration.api.crypto import EncryptedText
 from aap_migration.migration.models import Base
 
 
@@ -15,7 +16,7 @@ class Connection(Base):
     type: Mapped[str] = mapped_column(String(10), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     url: Mapped[str] = mapped_column(String(512), nullable=False)
-    token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     verify_ssl: Mapped[bool] = mapped_column(Boolean, default=True)
     version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     api_prefix: Mapped[str | None] = mapped_column(String(100), nullable=True)

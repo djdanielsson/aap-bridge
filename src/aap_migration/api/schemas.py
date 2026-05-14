@@ -96,5 +96,11 @@ class MigrationPreviewResponse(BaseModel):
     group_counts: dict[str, int] = {}
 
 
+class PreviewStatusResponse(BaseModel):
+    status: Literal["running", "completed", "failed", "cancelled"]
+    error: str | None = None
+    result: MigrationPreviewResponse | None = None
+
+
 class JobCreatedResponse(BaseModel):
     job_id: str

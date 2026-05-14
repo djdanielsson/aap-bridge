@@ -7,7 +7,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session, sessionmaker
 
 from aap_migration.api.models import Connection, Job
-from aap_migration.api.schemas import MigrationPreviewResponse
+from aap_migration.api.schemas import MigrationPreviewResponse, PreviewStatusResponse
 from aap_migration.api.services.job_service import JobService
 
 PREVIEW_RESOURCE_TYPES = [
@@ -369,15 +369,18 @@ class MigrationService:
         self.job_service.register_task(job_id, task)
         return job_id
 
-    def get_preview(self, job_id: str) -> tuple[str, MigrationPreviewResponse | None]:
+    def get_preview(self, job_id: str) -> PreviewStatusResponse | None:
         db = self.session_factory()
         try:
             job = db.query(Job).filter(Job.id == job_id).first()
             if not job:
-                return ("not_found", None)
+                return None
             if not job.job_metadata:
-                return (job.status, None)
-            return (job.status, MigrationPreviewResponse(**job.job_metadata))
+                return PreviewStatusResponse(status=job.status, error=job.error)
+            return PreviewStatusResponse(
+                status=job.status,
+                result=MigrationPreviewResponse(**job.job_metadata),
+            )
         finally:
             db.close()
 

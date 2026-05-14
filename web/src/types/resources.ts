@@ -32,6 +32,12 @@ export interface MigrationPreviewData {
   group_counts?: Record<string, number>;
 }
 
+export interface PreviewStatusResponse {
+  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  error?: string;
+  result?: MigrationPreviewData;
+}
+
 export interface DefaultExclusions {
   migration: Record<string, string[]>;
   cleanup: Record<string, Record<string, string[]>>;

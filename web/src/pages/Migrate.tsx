@@ -80,17 +80,19 @@ export function Migrate() {
     const poll = async () => {
       if (pollJobId.current !== jobId) return;
       try {
-        const resp = await api.getMigrationPreview(jobId) as Record<string, unknown>;
+        const resp = await api.getMigrationPreview(jobId);
         if (pollJobId.current !== jobId) return;
         if (resp.status === 'running') {
           setTimeout(poll, 1500);
           return;
         }
-        if (resp.status === 'failed') {
-          setPreviewError(resp.error as string || 'Preview failed');
+        if (resp.status === 'failed' || resp.status === 'cancelled') {
+          setPreviewError(resp.error || 'Preview failed');
           return;
         }
-        setPreviewData(resp as unknown as MigrationPreviewData);
+        if (resp.result) {
+          setPreviewData(resp.result);
+        }
       } catch {
         retries++;
         if (retries >= maxRetries) {

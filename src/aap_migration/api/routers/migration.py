@@ -7,7 +7,7 @@ from aap_migration.api.schemas import (
     JobCreatedResponse,
     MigratePreviewRequest,
     MigrateRunRequest,
-    MigrationPreviewResponse,
+    PreviewStatusResponse,
 )
 from aap_migration.api.services.connection_service import ConnectionService
 
@@ -29,17 +29,17 @@ def start_preview(data: MigratePreviewRequest, db: Session = Depends(get_db)) ->
     return JobCreatedResponse(job_id=job_id)
 
 
-@router.get("/migrate/preview/{job_id}", response_model=MigrationPreviewResponse)
-def get_preview(job_id: str) -> MigrationPreviewResponse:
+@router.get("/migrate/preview/{job_id}", response_model=PreviewStatusResponse)
+def get_preview(job_id: str) -> PreviewStatusResponse:
     state = get_app_state()
     from aap_migration.api.services.migration_service import MigrationService
 
     mig_svc = MigrationService(state.job_service, state.db_session_factory, state.loop)
-    status, preview = mig_svc.get_preview(job_id)
-    if status == "not_found":
+    preview = mig_svc.get_preview(job_id)
+    if preview is None:
         raise HTTPException(status_code=404, detail="Preview not found")
-    if not preview:
-        return JSONResponse(status_code=202, content={"status": status})
+    if preview.status == "running":
+        return JSONResponse(status_code=202, content=preview.model_dump())
     return preview
 
 

@@ -55,6 +55,7 @@ services:
     environment:
       MIGRATION_STATE_DB_PATH: "postgresql://${POSTGRES_USER:-aap_migration_user}:${POSTGRES_PASSWORD:-redhat123!}@localhost:15432/${POSTGRES_DB:-aap_migration}"
       AAP_BRIDGE_LOG_LEVEL: INFO
+      AAP_BRIDGE_ENCRYPTION_KEY: "${AAP_BRIDGE_ENCRYPTION_KEY:-}"
     security_opt:
       - label=disable
 
