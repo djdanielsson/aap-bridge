@@ -12,17 +12,22 @@ import click
 from dotenv import load_dotenv
 
 from aap_migration import __version__
+from aap_migration.cli.commands import analyze_dependencies as analyze_dependencies_commands
 from aap_migration.cli.commands import checkpoint as checkpoint_commands
 from aap_migration.cli.commands import cleanup as cleanup_commands
 from aap_migration.cli.commands import config as config_commands
+from aap_migration.cli.commands import credentials as credentials_commands
 from aap_migration.cli.commands import export_import
 from aap_migration.cli.commands import info as info_commands
 from aap_migration.cli.commands import metadata as metadata_commands
 from aap_migration.cli.commands import migrate as migrate_commands
+from aap_migration.cli.commands import migration_report as migration_report_commands
 from aap_migration.cli.commands import patch_projects as patch_projects_commands
 from aap_migration.cli.commands import prep as prep_commands
+from aap_migration.cli.commands import project_failures as project_failures_commands
 from aap_migration.cli.commands import schema as schema_commands
 from aap_migration.cli.commands import serve as serve_commands
+from aap_migration.cli.commands import sizing as sizing_commands
 from aap_migration.cli.commands import state as state_commands
 from aap_migration.cli.commands import transform as transform_commands
 from aap_migration.cli.commands import validate as validate_commands
@@ -137,6 +142,11 @@ cli.add_command(patch_projects_commands.patch_projects)
 cli.add_command(validate_commands.validate)
 cli.add_command(validate_commands.report)
 cli.add_command(serve_commands.serve)
+cli.add_command(credentials_commands.credentials)
+cli.add_command(analyze_dependencies_commands.analyze_dependencies_cmd)
+cli.add_command(project_failures_commands.analyze_project_failures)
+cli.add_command(migration_report_commands.generate_migration_report)
+cli.add_command(sizing_commands.sizing_cmd)
 
 
 def main() -> int:

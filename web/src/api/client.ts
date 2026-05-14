@@ -11,7 +11,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const resp = await fetch(`${BASE}${path}`, opts);
   if (resp.status === 204) return undefined as T;
   const data = await resp.json();
-  if (!resp.ok) throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
+  if (!resp.ok) {
+    const msg = data.detail || data.error || `HTTP ${resp.status}`;
+    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+  }
   return data as T;
 }
 
@@ -32,13 +35,20 @@ export const api = {
     request<{ job_id: string }>('POST', '/api/migrate/preview', { source_id: sourceId, destination_id: destinationId }),
   getMigrationPreview: (jobId: string) =>
     request<unknown>('GET', `/api/migrate/preview/${jobId}`),
-  migrationRun: (sourceId: string, destinationId: string, previewJobId: string, exclude?: Record<string, string[]>) =>
-    request<{ job_id: string }>('POST', '/api/migrate/run', {
+  migrationRun: (sourceId: string, destinationId: string, previewJobId: string, exclusions?: Record<string, string[]>) => {
+    const intExclusions: Record<string, number[]> = {};
+    if (exclusions) {
+      for (const [type, ids] of Object.entries(exclusions)) {
+        intExclusions[type] = ids.map(id => parseInt(id, 10)).filter(n => !isNaN(n));
+      }
+    }
+    return request<{ job_id: string }>('POST', '/api/migrate/run', {
       source_id: sourceId,
       destination_id: destinationId,
       job_id: previewJobId,
-      exclude: exclude || {},
-    }),
+      exclusions: intExclusions,
+    });
+  },
 
   clearMigrationState: () => request<{ cleared_progress: number; deleted_mappings: number }>('POST', '/api/migrate/clear-state'),
   getExclusions: () => request<unknown>('GET', '/api/exclusions'),
@@ -46,6 +56,16 @@ export const api = {
   listJobs: () => request<unknown[]>('GET', '/api/jobs'),
   getJob: (id: string) => request<unknown>('GET', `/api/jobs/${id}`),
   cancelJob: (jobId: string) => request<{ status: string }>('POST', `/api/jobs/${jobId}/cancel`),
+
+  runAnalysis: (connectionId: string) =>
+    request<{ job_id: string }>('POST', '/api/analysis/run', { connection_id: connectionId }),
+  getAnalysisResult: (jobId: string) =>
+    request<unknown>('GET', `/api/analysis/${jobId}`),
+  exportAnalysisJson: (jobId: string) => `/api/analysis/${jobId}/export/json`,
+  exportAnalysisHtml: (jobId: string) => `/api/analysis/${jobId}/export/html`,
+
+  calculateSizing: (params: Record<string, unknown>) =>
+    request<unknown>('POST', '/api/sizing/calculate', params),
 };
 
 export function createJobLogSocket(jobId: string, onMessage: (line: string) => void, onClose?: (status: string) => void): WebSocket {

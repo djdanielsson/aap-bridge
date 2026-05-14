@@ -12,6 +12,7 @@ from aap_migration.client.aap_source_client import AAPSourceClient
 from aap_migration.client.aap_target_client import AAPTargetClient
 from aap_migration.config import MigrationConfig
 from aap_migration.migration.checkpoint import CheckpointManager
+from aap_migration.migration.credential_comparator import CredentialComparator
 from aap_migration.migration.exporter import create_exporter
 from aap_migration.migration.importer import create_importer
 from aap_migration.migration.inventory_source_sync import sync_inventory_sources_after_import
@@ -206,6 +207,60 @@ class MigrationCoordinator:
             target_url=config.target.url,
             dry_run=config.dry_run,
         )
+
+    async def compare_and_verify_credentials(
+        self,
+        report_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Compare credentials between source and target before migration."""
+        logger.info("credential_comparison_starting")
+
+        comparator = CredentialComparator(
+            source_client=self.source_client,
+            target_client=self.target_client,
+            state=self.state,
+        )
+
+        result = await comparator.compare_credentials()
+        report = comparator.generate_report(result)
+
+        if report_path:
+            try:
+                import os
+
+                os.makedirs(os.path.dirname(report_path), exist_ok=True)
+                with open(report_path, "w") as f:
+                    f.write(report)
+                logger.info("credential_comparison_report_saved", path=report_path)
+            except Exception as e:
+                logger.error("credential_report_save_failed", path=report_path, error=str(e))
+
+        summary = {
+            "total_source": result.total_source,
+            "total_target": result.total_target,
+            "matching_count": result.matching_credentials,
+            "missing_count": len(result.missing_in_target),
+            "managed_skipped": result.managed_credentials_skipped,
+            "missing_credentials": [
+                {
+                    "source_id": diff.source_id,
+                    "name": diff.name,
+                    "type": diff.credential_type_name,
+                    "organization": diff.organization_name,
+                }
+                for diff in result.missing_in_target
+            ],
+            "report": report,
+        }
+
+        logger.info(
+            "credential_comparison_completed",
+            total_source=result.total_source,
+            total_target=result.total_target,
+            missing=len(result.missing_in_target),
+        )
+
+        return summary
 
     async def migrate_all(
         self,

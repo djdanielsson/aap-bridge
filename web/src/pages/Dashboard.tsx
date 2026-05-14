@@ -30,23 +30,34 @@ export function Dashboard() {
   const [editConn, setEditConn] = useState<Connection | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const loadConnections = useCallback(async () => {
-    const conns = await api.listConnections() as Connection[];
-    setConnections(conns);
+    try {
+      const conns = await api.listConnections() as Connection[];
+      setConnections(conns);
+    } catch (err) {
+      console.error('Failed to load connections:', err);
+    }
   }, []);
 
   useEffect(() => { loadConnections(); }, [loadConnections]);
 
   const handleSave = async (conn: Omit<Connection, 'id'>) => {
-    if (editConn) {
-      await api.updateConnection(editConn.id, conn);
-    } else {
-      await api.createConnection(conn);
+    setSaveError(null);
+    try {
+      if (editConn) {
+        await api.updateConnection(editConn.id, conn);
+      } else {
+        await api.createConnection(conn);
+      }
+      setShowForm(false);
+      setEditConn(null);
+      loadConnections();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save connection';
+      setSaveError(message);
     }
-    setShowForm(false);
-    setEditConn(null);
-    loadConnections();
   };
 
   const handleDelete = async (id: string) => {
@@ -195,7 +206,8 @@ export function Dashboard() {
         isOpen={showForm}
         initial={editConn || undefined}
         onSave={handleSave}
-        onClose={() => { setShowForm(false); setEditConn(null); }}
+        onClose={() => { setShowForm(false); setEditConn(null); setSaveError(null); }}
+        error={saveError}
       />
     </>
   );

@@ -16,6 +16,7 @@ services:
       retries: 10
 
   bridge:
+    image: localhost/aap-bridge:latest-dev
     build:
       context: .
       dockerfile: Containerfile.dev
@@ -44,6 +45,7 @@ services:
     entrypoint: ["sleep", "infinity"]
 
   engine:
+    image: localhost/aap-bridge:latest-api
     build:
       context: .
       dockerfile: Containerfile
@@ -59,13 +61,13 @@ services:
       - label=disable
 
   ui:
+    image: localhost/aap-bridge-ui:latest
     build:
       context: .
       dockerfile: Containerfile.ui
     depends_on:
       - engine
-    ports:
-      - "8080:8080"
+    network_mode: host
 
 volumes:
   pgdata:

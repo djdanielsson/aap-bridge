@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from aap_migration.api.dependencies import set_app_state
 from aap_migration.api.models import Base
-from aap_migration.api.routers import connections, jobs, migration, operations, resources
+from aap_migration.api.routers import (
+    analysis,
+    connections,
+    jobs,
+    migration,
+    operations,
+    resources,
+    sizing,
+)
 from aap_migration.api.services.job_service import JobService
 from aap_migration.api.websocket import router as ws_router
 
@@ -33,6 +41,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Base.metadata.create_all(engine)
 
     from aap_migration.migration.models import Base as MigrationBase
+
+    MigrationBase.metadata.create_all(engine)
+
+    from aap_migration.analysis.models import (
+        AnalyzedOrganization,  # noqa: F401 — triggers table registration
+    )
 
     MigrationBase.metadata.create_all(engine)
 
@@ -68,6 +82,8 @@ def create_app(db_url: str = "") -> FastAPI:
     app.include_router(operations.router, prefix="/api")
     app.include_router(migration.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
+    app.include_router(analysis.router, prefix="/api")
+    app.include_router(sizing.router, prefix="/api")
     app.include_router(ws_router)
 
     return app

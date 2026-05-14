@@ -77,7 +77,8 @@ export function Migrate() {
           return;
         }
         if (resp.status === 'failed') {
-          setPreviewError(resp.error as string || 'Preview failed');
+          const errMsg = resp.error;
+          setPreviewError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg) || 'Preview failed');
           return;
         }
         setPreviewData(resp as unknown as MigrationPreviewData);

@@ -2311,6 +2311,107 @@ DEPENDENCY_MAP: dict[str, list[str]] = {
     "schedules": ["job_templates"],
 }
 
+
+class ApplicationTransformer(DataTransformer):
+    """Transformer for OAuth applications with secret management."""
+
+    DEPENDENCIES = {
+        "organization": "organizations",
+    }
+    REQUIRED_DEPENDENCIES = {"organization"}
+
+    def _apply_specific_transformations(
+        self, data: dict[str, Any], resource_type: str
+    ) -> dict[str, Any]:
+        data["_source_id"] = data.get("id")
+
+        if "client_secret" in data and data["client_secret"]:
+            data["client_secret"] = "***REDACTED_WILL_BE_REGENERATED***"
+            data["_requires_new_secret"] = True
+
+        data["_migration_notes"] = {
+            "client_secret_action": "will_be_auto_generated"
+            if data.get("_requires_new_secret")
+            else "none",
+            "redirect_uris_action": "review_for_environment",
+            "external_systems_action": "update_with_new_client_id_secret",
+        }
+
+        return data
+
+
+class SettingsTransformer(DataTransformer):
+    """Transformer for global system settings with categorization."""
+
+    DEPENDENCIES: dict[str, str] = {}
+    REQUIRED_DEPENDENCIES: set[str] = set()
+
+    SENSITIVE_PATTERNS = [
+        "PASSWORD",
+        "SECRET",
+        "KEY",
+        "TOKEN",
+        "PRIVATE",
+        "CLIENT_SECRET",
+        "BIND_PASSWORD",
+        "SOCIAL_AUTH",
+    ]
+
+    ENVIRONMENT_PATTERNS = [
+        "URL",
+        "URI",
+        "HOST",
+        "PATH",
+        "DOMAIN",
+        "SERVER",
+        "EMAIL_HOST",
+        "LDAP",
+        "SMTP",
+    ]
+
+    def _apply_specific_transformations(
+        self, data: dict[str, Any], resource_type: str
+    ) -> dict[str, Any]:
+        metadata = data.pop("_migration_metadata", {})
+
+        categorized = {
+            "safe_to_copy": {},
+            "review_required": {},
+            "sensitive": {},
+            "_migration_metadata": metadata,
+        }
+
+        for key, value in data.items():
+            if key.startswith("_"):
+                continue
+
+            if any(pattern in key for pattern in self.SENSITIVE_PATTERNS):
+                categorized["sensitive"][key] = {
+                    "_original_value_redacted": True,
+                    "_action": "provide_new_value_manually",
+                    "_placeholder": f"***PROVIDE_{key}***",
+                }
+            elif any(pattern in key for pattern in self.ENVIRONMENT_PATTERNS):
+                categorized["review_required"][key] = {
+                    "source_value": value,
+                    "_action": "review_and_adapt_for_target_environment",
+                }
+            else:
+                categorized["safe_to_copy"][key] = value
+
+        categorized["_summary"] = {
+            "total_settings": len(data),
+            "safe_to_copy_count": len(categorized["safe_to_copy"]),
+            "review_required_count": len(categorized["review_required"]),
+            "sensitive_count": len(categorized["sensitive"]),
+            "auto_import_percentage": round(len(categorized["safe_to_copy"]) / len(data) * 100, 1)
+            if len(data) > 0
+            else 0,
+        }
+
+        return categorized
+
+
 # Registry of all transformer classes
 TRANSFORMER_CLASSES: dict[str, type[DataTransformer]] = {
     "organizations": OrganizationTransformer,
@@ -2334,6 +2435,8 @@ TRANSFORMER_CLASSES: dict[str, type[DataTransformer]] = {
     "notification_templates": NotificationTemplateTransformer,
     "credential_input_sources": CredentialInputSourceTransformer,
     "jobs": JobsTransformer,
+    "applications": ApplicationTransformer,
+    "settings": SettingsTransformer,
     "constructed_inventories": InventoryTransformer,
     "role_definitions": RoleDefinitionTransformer,
     "role_user_assignments": RoleAssignmentTransformer,

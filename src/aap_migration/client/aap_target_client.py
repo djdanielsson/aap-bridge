@@ -577,3 +577,84 @@ class AAPTargetClient(BaseAPIClient):
         except Exception as e:
             logger.error("aap_connectivity_failed", error=str(e))
             return False
+
+    async def create_gateway_authenticator(
+        self,
+        name: str,
+        plugin_type: str,
+        configuration: dict[str, Any],
+        enabled: bool = True,
+        create_objects: bool = True,
+        remove_users: bool = False,
+        order: int = 2,
+    ) -> dict[str, Any]:
+        """Create a Platform Gateway authenticator (AAP 2.6+)."""
+        gateway_url = self.base_url.replace("/api/controller/v2", "/api/gateway/v1")
+        endpoint = f"{gateway_url}/authenticators/"
+        payload = {
+            "name": name,
+            "type": plugin_type,
+            "enabled": enabled,
+            "create_objects": create_objects,
+            "remove_users": remove_users,
+            "order": order,
+            "configuration": configuration,
+        }
+        response = await self.client.post(
+            endpoint, json=payload, headers={"Authorization": f"Bearer {self.token}"}
+        )
+        response.raise_for_status()
+        result = response.json()
+        logger.info("gateway_authenticator_created", name=name, authenticator_id=result.get("id"))
+        return result
+
+    @retry_api_call
+    async def list_gateway_authenticators(self) -> list[dict[str, Any]]:
+        """List all Platform Gateway authenticators (AAP 2.6+)."""
+        gateway_url = self.base_url.replace("/api/controller/v2", "/api/gateway/v1")
+        response = await self.client.get(
+            f"{gateway_url}/authenticators/", headers={"Authorization": f"Bearer {self.token}"}
+        )
+        response.raise_for_status()
+        return response.json().get("results", [])
+
+    @retry_api_call
+    async def create_authenticator_map(
+        self,
+        authenticator_id: int,
+        name: str,
+        map_type: str,
+        triggers: dict[str, Any],
+        organization: str | None = None,
+        team: str | None = None,
+        role: str | None = None,
+        revoke: bool = False,
+        order: int = 10,
+    ) -> dict[str, Any]:
+        """Create an authenticator map for organization/team/user mappings (AAP 2.6+)."""
+        gateway_url = self.base_url.replace("/api/controller/v2", "/api/gateway/v1")
+        payload: dict[str, Any] = {
+            "name": name,
+            "authenticator": authenticator_id,
+            "map_type": map_type,
+            "triggers": triggers,
+            "revoke": revoke,
+            "order": order,
+        }
+        if organization:
+            payload["organization"] = organization
+        if team:
+            payload["team"] = team
+        if role:
+            payload["role"] = role
+        response = await self.client.post(
+            f"{gateway_url}/authenticator_maps/",
+            json=payload,
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        response.raise_for_status()
+        result = response.json()
+        logger.info(
+            "authenticator_map_created", map_id=result.get("id"), name=name, map_type=map_type
+        )
+        return result

@@ -12,6 +12,7 @@ import {
   FormSelectOption,
   Checkbox,
   Button,
+  Alert,
 } from '@patternfly/react-core';
 import type { Connection } from '../types/connection';
 
@@ -20,18 +21,26 @@ interface Props {
   initial?: Partial<Connection>;
   onSave: (conn: Omit<Connection, 'id'>) => void;
   onClose: () => void;
+  error?: string | null;
 }
 
-export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
+export function ConnectionForm({ isOpen, initial, onSave, onClose, error }: Props) {
+  const isEdit = !!initial?.name;
   const [name, setName] = useState(initial?.name || '');
   const [type, setType] = useState<'awx' | 'aap'>(initial?.type || 'awx');
   const [role, setRole] = useState<'source' | 'destination'>(initial?.role || 'source');
   const [url, setUrl] = useState(initial?.url || '');
-  const [token, setToken] = useState(initial?.token || '');
+  const [token, setToken] = useState('');
   const [verifySsl, setVerifySsl] = useState(initial?.verify_ssl ?? true);
 
   const handleSubmit = () => {
-    onSave({ name, type, role, url, token, verify_ssl: verifySsl });
+    const conn: Record<string, unknown> = { name, type, role, url, verify_ssl: verifySsl };
+    if (token) {
+      conn.token = token;
+    } else if (!isEdit) {
+      conn.token = null;
+    }
+    onSave(conn as Omit<Connection, 'id'>);
   };
 
   return (
@@ -39,13 +48,18 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
       isOpen={isOpen}
       onClose={onClose}
       variant={ModalVariant.medium}
-      title={initial?.name ? 'Edit Connection' : 'Add Connection'}
+      title={isEdit ? 'Edit Connection' : 'Add Connection'}
       actions={[
         <Button key="save" variant="primary" onClick={handleSubmit}>Save</Button>,
         <Button key="cancel" variant="link" onClick={onClose}>Cancel</Button>,
       ]}
     >
       <Form isHorizontal>
+        {error && (
+          <Alert variant="danger" isInline title="Save failed" style={{ marginBottom: 16 }}>
+            {error}
+          </Alert>
+        )}
         <FormGroup label="Name" isRequired fieldId="name">
           <TextInput id="name" value={name} onChange={(_e, v) => setName(v)} placeholder="My AAP Instance" />
         </FormGroup>
@@ -87,7 +101,7 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
           </FormHelperText>
         </FormGroup>
         <FormGroup label="Token" fieldId="token">
-          <TextInput id="token" type="password" value={token} onChange={(_e, v) => setToken(v)} placeholder="API authentication token" />
+          <TextInput id="token" type="password" value={token} onChange={(_e, v) => setToken(v)} placeholder={isEdit ? 'Leave blank to keep current token' : 'API authentication token'} />
           <FormHelperText>
             <HelperText>
               <HelperTextItem>Personal Access Token or OAuth2 token for API authentication</HelperTextItem>

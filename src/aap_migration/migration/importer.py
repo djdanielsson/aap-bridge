@@ -5106,6 +5106,281 @@ class RoleTeamAssignmentImporter(ResourceImporter):
         return results
 
 
+class HostInventoryMembershipImporter(ResourceImporter):
+    """Importer for host-inventory membership relationships."""
+
+    DEPENDENCIES = {"host_id": "hosts", "inventory_id": "inventories"}
+
+    async def import_resource(
+        self, resource: dict[str, Any], xformed: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        source_host_id = resource.get("host_id")
+        source_inventory_id = resource.get("inventory_id")
+        host_name = resource.get("host_name", f"host_{source_host_id}")
+        inventory_name = resource.get("inventory_name", f"inventory_{source_inventory_id}")
+        membership_id = f"{source_host_id}_{source_inventory_id}"
+
+        if self.state.is_migrated("host_inventory_memberships", membership_id):
+            self.stats["skipped_count"] += 1
+            return {"status": "skipped", "reason": "already_migrated"}
+
+        target_host_id = self.state.get_mapped_id("hosts", source_host_id)
+        target_inventory_id = self.state.get_mapped_id("inventories", source_inventory_id)
+
+        if not target_host_id:
+            self.stats["skipped_count"] += 1
+            return {"status": "skipped", "reason": "host_not_found"}
+        if not target_inventory_id:
+            self.stats["skipped_count"] += 1
+            return {"status": "skipped", "reason": "inventory_not_found"}
+
+        try:
+            host_data = await self.client.get(f"hosts/{target_host_id}/")
+            if host_data.get("inventory") == target_inventory_id:
+                self.state.create_source_mapping(
+                    "host_inventory_memberships",
+                    membership_id,
+                    source_name=f"{host_name} -> {inventory_name}",
+                )
+                self.state.mark_completed("host_inventory_memberships", membership_id)
+                self.stats["skipped_count"] += 1
+                return {"status": "skipped", "reason": "already_primary_inventory"}
+
+            existing = await self.client.get(
+                f"inventories/{target_inventory_id}/hosts/",
+                params={"id": target_host_id, "page_size": 1},
+            )
+            if existing.get("count", 0) > 0:
+                self.state.create_source_mapping(
+                    "host_inventory_memberships",
+                    membership_id,
+                    source_name=f"{host_name} -> {inventory_name}",
+                )
+                self.state.mark_completed("host_inventory_memberships", membership_id)
+                self.stats["skipped_count"] += 1
+                return {"status": "skipped", "reason": "already_in_inventory"}
+
+            await self.client.post(
+                f"inventories/{target_inventory_id}/hosts/", json_data={"id": target_host_id}
+            )
+            self.state.create_source_mapping(
+                "host_inventory_memberships",
+                membership_id,
+                source_name=f"{host_name} -> {inventory_name}",
+            )
+            self.state.mark_completed("host_inventory_memberships", membership_id)
+            self.stats["imported_count"] += 1
+            return {"status": "created"}
+
+        except APIError as e:
+            self.state.create_source_mapping(
+                "host_inventory_memberships",
+                membership_id,
+                source_name=f"{host_name} -> {inventory_name}",
+            )
+            self.state.mark_failed("host_inventory_memberships", membership_id, str(e))
+            self.stats["error_count"] += 1
+            self.import_errors.append(
+                {
+                    "resource_type": "host_inventory_memberships",
+                    "source_id": membership_id,
+                    "name": f"{host_name} -> {inventory_name}",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                }
+            )
+            return {"status": "failed", "error": str(e)}
+
+
+class ApplicationImporter(ResourceImporter):
+    """Importer for OAuth applications with secret management."""
+
+    DEPENDENCIES = {"organization": "organizations"}
+
+    async def import_resource(
+        self,
+        resource_type: str,
+        source_id: int,
+        data: dict[str, Any],
+        resolve_dependencies: bool = True,
+    ) -> dict[str, Any] | None:
+        if self.state.is_migrated(resource_type, source_id):
+            self.stats["skipped_count"] += 1
+            return None
+        name = data.get("name")
+        if not name:
+            return None
+        self.state.mark_in_progress(resource_type, source_id, name, "import")
+        if resolve_dependencies:
+            data = await self._resolve_dependencies(resource_type, data)
+        if data.get("_requires_new_secret"):
+            data.pop("client_secret", None)
+        data.pop("client_id", None)
+        if not data.get("_requires_new_secret"):
+            data.pop("client_secret", None)
+        for key in list(data.keys()):
+            if key.startswith("_"):
+                data.pop(key)
+        try:
+            result = await self.client.post(f"{resource_type}/", json_data=data)
+            target_id = result["id"]
+            self.state.save_id_mapping(
+                resource_type=resource_type,
+                source_id=source_id,
+                target_id=target_id,
+                source_name=name,
+                target_name=result.get("name", name),
+            )
+            self.state.mark_completed(resource_type, source_id, target_id, name)
+            self.stats["imported_count"] += 1
+            return result
+        except Exception as e:
+            self.state.mark_failed(resource_type, source_id, str(e))
+            self.stats["error_count"] += 1
+            return None
+
+    async def import_applications(
+        self,
+        applications: list[dict[str, Any]],
+        progress_callback: Callable[[int, int, int], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        return await self._import_parallel("applications", applications, progress_callback)
+
+
+class SettingsImporter(ResourceImporter):
+    """Importer for global system settings with review workflow."""
+
+    DEPENDENCIES: dict[str, str] = {}
+
+    async def import_resource(
+        self,
+        resource_type: str,
+        source_id: int,
+        data: dict[str, Any],
+        resolve_dependencies: bool = True,
+    ) -> dict[str, Any] | None:
+        safe = data.get("safe_to_copy", {})
+        review_required = data.get("review_required", {})
+        sensitive = data.get("sensitive", {})
+        imported_count = 0
+        failed_count = 0
+
+        from packaging import version
+
+        target_version = await self.client.get_version()
+        is_aap_26 = version.parse(target_version) >= version.parse("2.6.0")
+        migration_result = {}
+
+        if is_aap_26:
+            migration_result = await self._migrate_auth_to_gateway(safe, review_required, sensitive)
+            for prefix in migration_result.get("migrated_prefixes", []):
+                safe = {k: v for k, v in safe.items() if not k.startswith(prefix)}
+                review_required = {
+                    k: v for k, v in review_required.items() if not k.startswith(prefix)
+                }
+                sensitive = {k: v for k, v in sensitive.items() if not k.startswith(prefix)}
+
+        if safe:
+            try:
+                await self.client.patch("settings/all/", json_data=safe)
+                imported_count = len(safe)
+            except Exception as e:
+                logger.error("settings_safe_import_failed", error=str(e))
+                failed_count = len(safe)
+
+        if review_required or sensitive:
+            self._generate_settings_review_report(review_required, sensitive)
+
+        self.stats["imported_count"] += imported_count
+        self.stats["error_count"] += failed_count
+        return {
+            "safe_imported": imported_count,
+            "review_required": len(review_required),
+            "sensitive_requires_manual": len(sensitive),
+        }
+
+    async def _migrate_auth_to_gateway(
+        self, safe: dict, review_required: dict, sensitive: dict
+    ) -> dict[str, Any]:
+        result = {"migrated_prefixes": []}
+        for prefix, name, plugin in [
+            (
+                "AUTH_LDAP_",
+                "Primary LDAP",
+                "ansible_base.authentication.authenticator_plugins.ldap",
+            ),
+            (
+                "SOCIAL_AUTH_SAML_",
+                "SAML SSO",
+                "ansible_base.authentication.authenticator_plugins.saml",
+            ),
+            (
+                "SOCIAL_AUTH_AZUREAD_OAUTH2_",
+                "Azure AD",
+                "ansible_base.authentication.authenticator_plugins.azuread_oauth",
+            ),
+            (
+                "SOCIAL_AUTH_GITHUB_ENTERPRISE_",
+                "GitHub Enterprise",
+                "ansible_base.authentication.authenticator_plugins.github",
+            ),
+        ]:
+            settings = {}
+            for cat in [safe, review_required, sensitive]:
+                for k, v in cat.items():
+                    if k.startswith(prefix):
+                        settings[k] = (
+                            v["source_value"] if isinstance(v, dict) and "source_value" in v else v
+                        )
+            if settings:
+                try:
+                    config = {
+                        k[len(prefix) :]: v
+                        for k, v in settings.items()
+                        if not any(p in k for p in ["SECRET", "PASSWORD", "PRIVATE_KEY"])
+                    }
+                    await self.client.create_gateway_authenticator(
+                        name=name,
+                        plugin_type=plugin,
+                        configuration=config,
+                        enabled=True,
+                        create_objects=True,
+                    )
+                    result["migrated_prefixes"].append(prefix)
+                except Exception as e:
+                    logger.error("auth_gateway_migration_failed", prefix=prefix, error=str(e))
+        return result
+
+    def _generate_settings_review_report(self, review_required: dict, sensitive: dict) -> None:
+        from pathlib import Path
+
+        lines = ["# Settings Migration Review Report\n\n"]
+        if review_required:
+            lines.append("## Environment-Specific Settings (Review Required)\n\n")
+            for key, info in sorted(review_required.items()):
+                lines.append(f"### `{key}`\n**Source value:** `{info.get('source_value')}`\n\n")
+        if sensitive:
+            lines.append("## Sensitive Settings (Manual Input Required)\n\n")
+            for key in sorted(sensitive.keys()):
+                lines.append(f"### `{key}`\n**Action:** Provide new value\n\n")
+        with open(Path("SETTINGS-REVIEW-REPORT.md"), "w") as f:
+            f.writelines(lines)
+
+    async def import_settings(
+        self,
+        settings_list: list[dict[str, Any]],
+        progress_callback: Callable[[int, int, int], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        if not settings_list:
+            return []
+        result = await self.import_resource(
+            resource_type="settings", source_id=0, data=settings_list[0], resolve_dependencies=False
+        )
+        if progress_callback:
+            progress_callback(1 if result else 0, 0 if result else 1, 0)
+        return [result] if result else []
+
+
 # Factory function for creating importers
 def create_importer(
     resource_type: str,
@@ -5169,6 +5444,10 @@ def create_importer(
         "role_team_assignments": RoleTeamAssignmentImporter,
         # System
         "system_job_templates": SystemJobTemplateImporter,
+        # Applications, settings, and memberships
+        "applications": ApplicationImporter,
+        "settings": SettingsImporter,
+        "host_inventory_memberships": HostInventoryMembershipImporter,
     }
 
     from aap_migration.resources import normalize_resource_type

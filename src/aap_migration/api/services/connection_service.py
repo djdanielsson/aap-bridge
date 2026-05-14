@@ -6,19 +6,35 @@ from sqlalchemy.orm import Session
 from aap_migration.api.models import Connection
 from aap_migration.api.schemas import ConnectionCreate, ConnectionUpdate, TestResult
 
+KNOWN_API_PATHS = ["/api/controller/v2", "/api/v2"]
+
+
+def _normalize_url(url: str) -> tuple[str, str | None]:
+    """Strip known API path suffixes from a URL.
+
+    Returns (base_url, api_prefix) so the URL is always the host root.
+    """
+    url = url.rstrip("/")
+    for path in KNOWN_API_PATHS:
+        if url.endswith(path):
+            return url[: -len(path)], path
+    return url, None
+
 
 class ConnectionService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
     def create(self, data: ConnectionCreate) -> Connection:
+        base_url, api_prefix = _normalize_url(data.url)
         conn = Connection(
             name=data.name,
             type=data.type,
             role=data.role,
-            url=data.url.rstrip("/"),
+            url=base_url,
             token=data.token,
             verify_ssl=data.verify_ssl,
+            api_prefix=api_prefix,
         )
         self.db.add(conn)
         self.db.commit()
@@ -37,7 +53,12 @@ class ConnectionService:
             return None
         update_data = data.model_dump(exclude_unset=True)
         if "url" in update_data and update_data["url"]:
-            update_data["url"] = update_data["url"].rstrip("/")
+            base_url, api_prefix = _normalize_url(update_data["url"])
+            update_data["url"] = base_url
+            if api_prefix:
+                update_data["api_prefix"] = api_prefix
+        if "token" in update_data and update_data["token"] in (None, "", "********"):
+            del update_data["token"]
         for key, value in update_data.items():
             setattr(conn, key, value)
         self.db.commit()
@@ -58,17 +79,14 @@ class ConnectionService:
         ping_error = None
         auth_error = None
         version = None
-        api_prefix = None
+        api_prefix = conn.api_prefix
 
-        api_prefixes = ["/api/controller/v2", "/api/v2"]
-        if conn.type == "awx":
+        if api_prefix:
+            api_prefixes = [api_prefix]
+        elif conn.type == "awx":
             api_prefixes = ["/api/v2"]
-
-        base_url = conn.url
-        for known_path in ["/api/controller/v2", "/api/v2"]:
-            if base_url.endswith(known_path):
-                api_prefixes = [""]
-                break
+        else:
+            api_prefixes = ["/api/controller/v2", "/api/v2"]
 
         for prefix in api_prefixes:
             try:
@@ -88,7 +106,7 @@ class ConnectionService:
             except Exception as e:
                 ping_error = str(e)
 
-        if ping_status == "ok" and api_prefix:
+        if ping_status == "ok" and api_prefix is not None:
             try:
                 resp = httpx.get(
                     f"{conn.url}{api_prefix}/me/",
