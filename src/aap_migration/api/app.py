@@ -28,6 +28,7 @@ class AppState:
     db_session_factory: sessionmaker[Session] = field(init=False)
     job_service: JobService = field(init=False)
     loop: asyncio.AbstractEventLoop = field(init=False)
+    db_url: str = field(init=False)
 
     def __post_init__(self) -> None:
         self.job_service = JobService()
@@ -92,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     state = AppState()
     state.db_session_factory = sessionmaker(bind=engine)
     state.loop = asyncio.get_running_loop()
+    state.db_url = _db_url
     set_app_state(state)
     yield
     engine.dispose()

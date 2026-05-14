@@ -20,9 +20,10 @@ from aap_migration.utils.logging import get_logger, sanitize_database_url
 
 logger = get_logger(__name__)
 
-# Global engine and session factory (initialized on first use)
-_engine: Engine | None = None
-_SessionFactory: sessionmaker | None = None
+# Cache engines and session factories by database URL so multiple migrations in the
+# same process do not silently share the wrong state database.
+_engines: dict[str, Engine] = {}
+_session_factories: dict[str, sessionmaker] = {}
 
 
 def _enable_sqlite_foreign_keys(dbapi_conn, connection_record):
@@ -152,24 +153,24 @@ def init_database(
     Raises:
         ConfigurationError: If database initialization fails
     """
-    global _engine, _SessionFactory
-
     try:
-        # Create engine
-        _engine = create_database_engine(
-            database_url,
-            echo=echo,
-            pool_size=pool_size,
-            max_overflow=max_overflow,
-            pool_timeout=pool_timeout,
-            pool_recycle=pool_recycle,
-        )
+        if database_url not in _engines:
+            _engines[database_url] = create_database_engine(
+                database_url,
+                echo=echo,
+                pool_size=pool_size,
+                max_overflow=max_overflow,
+                pool_timeout=pool_timeout,
+                pool_recycle=pool_recycle,
+            )
+            _session_factories[database_url] = sessionmaker(
+                bind=_engines[database_url], expire_on_commit=False
+            )
+
+        engine = _engines[database_url]
 
         # Create all tables
-        Base.metadata.create_all(_engine)
-
-        # Create session factory
-        _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False)
+        Base.metadata.create_all(engine)
 
         logger.info(
             "Database initialized successfully",
@@ -177,7 +178,7 @@ def init_database(
             tables=len(Base.metadata.tables),
         )
 
-        return _engine
+        return engine
 
     except Exception as e:
         logger.error(
@@ -205,21 +206,21 @@ def get_engine(database_url: str | None = None, echo: bool = False) -> Engine:
     Raises:
         ConfigurationError: If engine is not initialized and no URL provided
     """
-    global _engine
+    if database_url is None:
+        if len(_engines) == 1:
+            return next(iter(_engines.values()))
+        raise ConfigurationError(
+            "Database engine not initialized for this URL. Call init_database() first or provide "
+            "database_url."
+        )
 
-    if _engine is None:
-        if database_url is None:
-            raise ConfigurationError(
-                "Database engine not initialized. Call init_database() first or provide database_url."
-            )
+    if database_url not in _engines:
         init_database(database_url, echo=echo)
 
-    # Assert for type checker - init_database() guarantees _engine is not None
-    assert _engine is not None, "Engine should be initialized by init_database()"
-    return _engine
+    return _engines[database_url]
 
 
-def get_session_factory() -> sessionmaker:
+def get_session_factory(database_url: str | None = None) -> sessionmaker:
     """
     Get the global session factory.
 
@@ -229,12 +230,20 @@ def get_session_factory() -> sessionmaker:
     Raises:
         ConfigurationError: If session factory is not initialized
     """
-    global _SessionFactory
+    if database_url is None:
+        if len(_session_factories) == 1:
+            return next(iter(_session_factories.values()))
+        raise ConfigurationError(
+            "Session factory not initialized for this URL. Call init_database() first or provide "
+            "database_url."
+        )
 
-    if _SessionFactory is None:
-        raise ConfigurationError("Session factory not initialized. Call init_database() first.")
+    if database_url not in _session_factories:
+        raise ConfigurationError(
+            "Session factory not initialized for this URL. Call init_database() first."
+        )
 
-    return _SessionFactory
+    return _session_factories[database_url]
 
 
 @contextmanager
@@ -263,7 +272,7 @@ def get_session(database_url: str | None = None) -> Generator[Session, None, Non
     get_engine(database_url)
 
     # Get session factory
-    session_factory = get_session_factory()
+    session_factory = get_session_factory(database_url)
 
     # Create session
     session = session_factory()

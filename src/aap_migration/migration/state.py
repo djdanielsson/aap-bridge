@@ -168,7 +168,7 @@ class MigrationState:
             source_id: Source system resource ID
 
         Returns:
-            True if resource is completed or in_progress, False otherwise
+            True if resource is completed, False otherwise
         """
         resource_type = self._normalize(resource_type)
         with self._lock:
@@ -183,8 +183,9 @@ class MigrationState:
                     if progress is None:
                         return False
 
-                    # Consider completed or in_progress as "migrated" to avoid duplicates
-                    is_migrated = progress.status in ("completed", "in_progress")
+                    # Only completed resources are safe to skip. A stale in_progress record
+                    # after a crash should be retried instead of silently treated as done.
+                    is_migrated = progress.status == "completed"
 
                     logger.debug(
                         "Checked migration status",

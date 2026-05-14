@@ -2,6 +2,25 @@ import type { PreviewStatusResponse } from '../types/resources';
 
 const BASE = '';
 
+function getErrorMessage(data: unknown, status: number): string {
+  if (typeof data === 'object' && data !== null) {
+    const detail = 'detail' in data ? (data as { detail?: unknown }).detail : undefined;
+    if (typeof detail === 'string' && detail) return detail;
+    if (Array.isArray(detail)) {
+      return detail.map(item => {
+        if (typeof item === 'string') return item;
+        if (typeof item === 'object' && item !== null && 'msg' in item) {
+          return String((item as { msg?: unknown }).msg);
+        }
+        return JSON.stringify(item);
+      }).join('; ');
+    }
+    const error = 'error' in data ? (data as { error?: unknown }).error : undefined;
+    if (typeof error === 'string' && error) return error;
+  }
+  return `HTTP ${status}`;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const opts: RequestInit = {
     method,
@@ -13,7 +32,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const resp = await fetch(`${BASE}${path}`, opts);
   if (resp.status === 204) return undefined as T;
   const data = await resp.json();
-  if (!resp.ok) throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
+  if (!resp.ok) throw new Error(getErrorMessage(data, resp.status));
   return data as T;
 }
 

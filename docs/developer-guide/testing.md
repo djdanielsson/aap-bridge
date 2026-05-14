@@ -50,12 +50,12 @@ Host (podman + make)
 ## Quick Start
 
 ```bash
-# 1. Build the app and start it with postgres
+# 1. Build the app and start the CLI dev container with postgres
 make build
-make up
+make up-dev
 
-# 2. Run tests
-make test
+# 2. Run tests inside the bridge container
+make c-test
 
 # 3. Build the ansible builder image (once)
 make build-builder
@@ -230,12 +230,12 @@ port (offset 43) provides direct API access but does not serve the UI.
 ### App development (runs inside bridge container)
 
 ```bash
-make up          # Start bridge + postgres
-make test        # Run pytest
-make lint        # Run ruff
-make format      # Run black + isort
-make typecheck   # Run mypy
-make check       # All of the above
+make up-dev      # Start bridge + postgres
+make c-test      # Run pytest
+make c-lint      # Run ruff
+make c-format    # Run black + isort
+make c-typecheck # Run mypy
+make c-check     # All of the above
 make shell       # Shell into bridge container
 make logs        # Tail logs
 make down        # Stop everything
@@ -278,12 +278,11 @@ If the AAP installer fails, the build output shows the last 150 lines of the ins
 
 ```
 Containerfile                        # aap-bridge app (UBI 9 + Python 3.12)
-compose.yml                          # bridge + postgres
+compose.yml                          # db + bridge + engine + ui services
 Makefile                             # All targets (host needs only podman + make)
 tests/integration/
 ├── Containerfile.builder            # Ansible builder (podman-remote + collections)
 ├── containerfiles/
-│   ├── Containerfile.ubi7-init      # Base for AAP 1.x (cgroup v1 hosts only)
 │   ├── Containerfile.ubi8-init      # Base for AAP 1.x-2.4
 │   └── Containerfile.ubi9-init      # Base for AAP 2.5-2.6
 ├── versions/

@@ -29,6 +29,7 @@ export function Jobs() {
       case 'running': return 'blue';
       case 'completed': return 'green';
       case 'failed': return 'red';
+      case 'cancelled': return 'orange';
       default: return 'grey';
     }
   };

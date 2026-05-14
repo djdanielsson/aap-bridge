@@ -64,7 +64,7 @@
 
           Next steps:
             # Push to registry:
-            make push VERSION={{ aap_version }} REGISTRY=quay.io/myorg
+            make push-aap VERSION={{ aap_version }} REGISTRY=quay.io/myorg
 
             # Or run a pair right away:
             make run-pair SOURCE={{ aap_version }} TARGET=2.6

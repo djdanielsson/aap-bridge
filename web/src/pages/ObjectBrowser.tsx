@@ -24,6 +24,7 @@ export function ObjectBrowser() {
   const [selectedType, setSelectedType] = useState('');
   const [resources, setResources] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     api.listConnections().then(c => setConnections(c as Connection[]));
@@ -33,21 +34,29 @@ export function ObjectBrowser() {
     if (!selectedConn) return;
     setSelectedType('');
     setResourceTypes([]);
-    api.listResourceTypes(selectedConn).then(rt => {
-      const types = rt as ResourceType[];
-      setResourceTypes(types);
-      if (types.length > 0) setSelectedType(types[0].name);
-    });
+    setResources([]);
+    setError('');
+    api.listResourceTypes(selectedConn)
+      .then(rt => {
+        const types = rt as ResourceType[];
+        setResourceTypes(types);
+        if (types.length > 0) setSelectedType(types[0].name);
+      })
+      .catch(err => {
+        setError(err instanceof Error ? err.message : String(err));
+      });
   }, [selectedConn]);
 
   const loadResources = useCallback(async () => {
     if (!selectedConn || !selectedType) return;
     setLoading(true);
+    setError('');
     try {
       const res = await api.listResources(selectedConn, selectedType);
       setResources((res || []) as Record<string, unknown>[]);
-    } catch {
+    } catch (err) {
       setResources([]);
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   }, [selectedConn, selectedType]);
@@ -79,9 +88,13 @@ export function ObjectBrowser() {
 
       {loading && <Spinner size="lg" />}
 
+      {!loading && error && (
+        <Alert variant="danger" isInline title={error} />
+      )}
+
       {!loading && resources.length > 0 && <ResourceTable resources={resources} />}
 
-      {!loading && selectedConn && selectedType && resources.length === 0 && (
+      {!loading && !error && selectedConn && selectedType && resources.length === 0 && (
         <Alert variant="info" isInline title="No resources found for this type." />
       )}
     </>

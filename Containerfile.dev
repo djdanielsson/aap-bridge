@@ -21,11 +21,7 @@ COPY pyproject.toml ./
 COPY src/ src/
 COPY config/ config/
 
-RUN pip3.12 install --no-cache-dir . && \
-    pip3.12 install --no-cache-dir psycopg2-binary
-
-COPY requirements.txt requirements-dev.txt ./
-RUN pip3.12 install --no-cache-dir -r requirements-dev.txt
+RUN pip3.12 install --no-cache-dir -e '.[api,dev]'
 
 RUN mkdir -p exports reports logs && \
     chown -R bridge:bridge exports reports logs

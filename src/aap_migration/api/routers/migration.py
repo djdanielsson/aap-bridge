@@ -66,11 +66,9 @@ def run_migration(data: MigrateRunRequest, db: Session = Depends(get_db)) -> Job
 @router.post("/migrate/clear-state", status_code=200)
 def clear_state() -> dict:
     """Clear migration state (progress records and ID mappings)."""
-    import os
-
     from aap_migration.cli.commands.cleanup import clear_database
 
-    db_url = os.environ.get("MIGRATION_STATE_DB_PATH", "sqlite:///aap_bridge.db")
+    db_url = get_app_state().db_url or "sqlite:///aap_bridge.db"
     cleared, deleted = clear_database(db_url)
     return {
         "cleared_progress": cleared,

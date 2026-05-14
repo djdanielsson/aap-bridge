@@ -667,12 +667,7 @@ class MigrationCoordinator:
                     )
 
                     if result:
-                        policy_skip = (
-                            isinstance(result, dict)
-                            and result.get("_skipped")
-                            and result.get("policy_skip")
-                        )
-                        if policy_skip:
+                        if isinstance(result, dict) and result.get("_skipped"):
                             stats["skipped"] += 1
                             import_skipped += 1
                             if self.progress_tracker:
@@ -689,8 +684,9 @@ class MigrationCoordinator:
                             if self.progress_tracker:
                                 self.progress_tracker.update_resource(imported=1)
                     else:
-                        # Check if it was a failure or just skipped (already imported)
-                        if self.state.is_migrated(resource_type, source_id):
+                        # Check if it was a completed import or an explicit skip
+                        status = self.state.get_status(resource_type, source_id)
+                        if status in ("completed", "skipped"):
                             stats["skipped"] += 1
                             import_skipped += 1
                             if self.progress_tracker:

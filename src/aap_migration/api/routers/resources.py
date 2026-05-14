@@ -20,7 +20,12 @@ def list_resource_types(connection_id: str, db: Session = Depends(get_db)) -> li
     from aap_migration.api.services.platform_adapter import PlatformAdapter
 
     adapter = PlatformAdapter(conn)
-    return adapter.discover_resource_types()
+    try:
+        return adapter.discover_resource_types()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to load resource types: {exc}"
+        ) from exc
 
 
 @router.get("/connections/{connection_id}/resources/{resource_type}")
@@ -41,5 +46,10 @@ def list_resources(
     from aap_migration.api.services.platform_adapter import PlatformAdapter
 
     adapter = PlatformAdapter(conn)
-    data = adapter.list_resources(resource_type, page, page_size, search)
+    try:
+        data = adapter.list_resources(resource_type, page, page_size, search)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Failed to load resources for {resource_type}: {exc}"
+        ) from exc
     return data.get("results", [])

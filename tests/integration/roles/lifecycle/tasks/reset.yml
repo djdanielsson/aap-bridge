@@ -37,7 +37,7 @@
     cmd: >
       podman exec {{ container_name }}
         curl -sk -o /dev/null -w '%{http_code}'
-        https://localhost{{ ver_config.api.controller_path }}/ping/
+        https://localhost{{ ':8443' if ver_config.installer.method | default('rpm') == 'containerized' else '' }}{{ ver_config.api.controller_path }}/ping/
   register: api_check
   retries: 30
   delay: 5

@@ -364,11 +364,11 @@ class ResourceImporter:
                     return existing
                 else:
                     self.stats["skipped_count"] += 1
-                    self.state.mark_completed(
-                        resource_type=resource_type,
-                        source_id=source_id,
-                        target_id=0,
-                        target_name=data.get("name", ""),
+                    self.state.mark_skipped(
+                        resource_type,
+                        source_id,
+                        "Target already has a conflicting resource and conflict resolution could not "
+                        "identify a safe mapping.",
                     )
                     logger.info(
                         "resource_skipped_exists",
@@ -376,7 +376,7 @@ class ResourceImporter:
                         source_id=source_id,
                         source_name=data.get("name"),
                     )
-                    return None
+                    return {"_skipped": True, "name": data.get("name")}
             else:
                 # Not an "already exists" error - re-raise
                 raise
@@ -1484,11 +1484,11 @@ class UserImporter(ResourceImporter):
                     return result
                 else:
                     self.stats["skipped_count"] += 1
-                    self.state.mark_completed(
-                        resource_type=resource_type,
-                        source_id=source_id,
-                        target_id=0,
-                        target_name=data.get("username", ""),
+                    self.state.mark_skipped(
+                        resource_type,
+                        source_id,
+                        "Target already has a conflicting user and conflict resolution could not "
+                        "identify a safe mapping.",
                     )
                     logger.info(
                         "resource_skipped_exists",
@@ -1496,7 +1496,7 @@ class UserImporter(ResourceImporter):
                         source_id=source_id,
                         source_name=data.get("username"),
                     )
-                    return None
+                    return {"_skipped": True, "name": data.get("username")}
             else:
                 raise
 

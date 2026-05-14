@@ -38,7 +38,7 @@ export function Migrate() {
   const [exclude, setExclude] = useState<Record<string, number[]>>({});
   const [cancelling, setCancelling] = useState(false);
   const [migrationDone, setMigrationDone] = useState(false);
-  const [clearMsg, setClearMsg] = useState('');
+  const [clearAlert, setClearAlert] = useState<{ title: string; variant: 'success' | 'danger' } | null>(null);
   const pollJobId = useRef('');
 
   const loadConnections = useCallback(async () => {
@@ -92,7 +92,9 @@ export function Migrate() {
         }
         if (resp.result) {
           setPreviewData(resp.result);
+          return;
         }
+        setPreviewError('Preview completed without result data');
       } catch {
         retries++;
         if (retries >= maxRetries) {
@@ -127,7 +129,8 @@ export function Migrate() {
     try {
       await api.cancelJob(runJobId);
     } catch {
-      // Job may have already finished
+      // Job may have already finished before the cancel request reached the server.
+      setCancelling(false);
     }
   };
 
@@ -145,9 +148,7 @@ export function Migrate() {
 
   const handleLogClose = (status: string) => {
     setMigrationDone(true);
-    if (status === 'cancelled') {
-      setCancelling(false);
-    }
+    setCancelling(false);
   };
 
   const sourceConn = connections.find(c => c.id === sourceId);
@@ -164,8 +165,8 @@ export function Migrate() {
         <Alert variant="info" isInline title="You need at least 2 connections configured to perform a migration." />
       )}
 
-      {clearMsg && (
-        <Alert variant="success" isInline title={clearMsg} style={{ marginBottom: 16 }} />
+      {clearAlert && (
+        <Alert variant={clearAlert.variant} isInline title={clearAlert.title} style={{ marginBottom: 16 }} />
       )}
 
       {step === 'select' && (
@@ -233,12 +234,18 @@ export function Migrate() {
                     <Button
                       variant="warning"
                       onClick={async () => {
-                        setClearMsg('');
+                        setClearAlert(null);
                         try {
                           const result = await api.clearMigrationState();
-                          setClearMsg(`Cleared ${result.cleared_progress} progress records and ${result.deleted_mappings} ID mappings`);
+                          setClearAlert({
+                            variant: 'success',
+                            title: `Cleared ${result.cleared_progress} progress records and ${result.deleted_mappings} ID mappings`,
+                          });
                         } catch (err) {
-                          setClearMsg(`Error: ${err instanceof Error ? err.message : String(err)}`);
+                          setClearAlert({
+                            variant: 'danger',
+                            title: err instanceof Error ? err.message : String(err),
+                          });
                         }
                       }}
                     >

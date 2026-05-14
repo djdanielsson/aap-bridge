@@ -26,17 +26,14 @@ class PlatformAdapter:
         return resp.json()
 
     def discover_resource_types(self) -> list[dict]:
-        try:
-            data = self._get("/")
-            if not isinstance(data, dict):
-                return []
-            return [
-                {"name": key, "label": key.replace("_", " ").title(), "api_path": path}
-                for key, path in sorted(data.items())
-                if isinstance(path, str)
-            ]
-        except Exception:
+        data = self._get("/")
+        if not isinstance(data, dict):
             return []
+        return [
+            {"name": key, "label": key.replace("_", " ").title(), "api_path": path}
+            for key, path in sorted(data.items())
+            if isinstance(path, str)
+        ]
 
     def fetch_all(self, resource_type: str) -> list[dict]:
         results = []
@@ -56,19 +53,10 @@ class PlatformAdapter:
         params: dict = {"page": page, "page_size": page_size}
         if search:
             params["search"] = search
-        try:
-            data = self._get(f"/{resource_type}/", params=params)
-            return {
-                "count": data.get("count", 0),
-                "results": data.get("results", []),
-                "page": page,
-                "page_size": page_size,
-            }
-        except Exception as e:
-            return {
-                "count": 0,
-                "results": [],
-                "page": page,
-                "page_size": page_size,
-                "error": str(e),
-            }
+        data = self._get(f"/{resource_type}/", params=params)
+        return {
+            "count": data.get("count", 0),
+            "results": data.get("results", []),
+            "page": page,
+            "page_size": page_size,
+        }

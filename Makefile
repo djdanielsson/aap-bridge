@@ -143,13 +143,15 @@ COMPOSE        := podman compose
 BRIDGE_SVC     := bridge
 BRIDGE_IMAGE   := localhost/aap-bridge:latest
 UI_IMAGE       := localhost/aap-bridge-ui:latest
+BRIDGE_DEV_ENCRYPTION_KEY := bridge-dev-placeholder-key-not-used
 
 HOST     ?= https://localhost:10443
 TOKEN    ?=
 SIZE     ?= small
 
 define run-bridge
-	$(COMPOSE) exec $(BRIDGE_SVC)
+	AAP_BRIDGE_ENCRYPTION_KEY="$${AAP_BRIDGE_ENCRYPTION_KEY:-$(BRIDGE_DEV_ENCRYPTION_KEY)}" \
+		$(COMPOSE) exec $(BRIDGE_SVC)
 endef
 
 build: ## Build aap-bridge container image (base + dev)
@@ -168,13 +170,15 @@ up: ## Start db + engine + ui (web interface)
 	$(COMPOSE) up -d db engine ui
 
 up-dev: ## Start db + bridge (CLI dev container)
-	$(COMPOSE) up -d db bridge
+	AAP_BRIDGE_ENCRYPTION_KEY="$${AAP_BRIDGE_ENCRYPTION_KEY:-$(BRIDGE_DEV_ENCRYPTION_KEY)}" \
+		$(COMPOSE) up -d --build db bridge
 
 down: ## Stop all containers
 	$(COMPOSE) down
 
 shell: ## Shell into bridge container
-	$(COMPOSE) exec $(BRIDGE_SVC) /bin/bash
+	AAP_BRIDGE_ENCRYPTION_KEY="$${AAP_BRIDGE_ENCRYPTION_KEY:-$(BRIDGE_DEV_ENCRYPTION_KEY)}" \
+		$(COMPOSE) exec $(BRIDGE_SVC) /bin/bash
 
 shell-engine: ## Shell into engine container
 	$(COMPOSE) exec engine /bin/bash
@@ -320,16 +324,16 @@ destroy-all: ## Remove ALL test containers, images, and networks
 status: ## Show all test containers and golden images
 	$(run-builder) playbooks/status.yml
 
-test-bridge: ## Run aap-bridge against pair (dry-run) (SOURCE=2.4 TARGET=2.6)
+test-bridge: up-dev ## Run aap-bridge against pair (dry-run) (SOURCE=2.4 TARGET=2.6)
 	@PAIR_ID="$(subst .,,$(SOURCE))-to-$(subst .,,$(TARGET))"; \
-	ENV_FILE="tests/integration/generated/pairs/$$PAIR_ID/.env"; \
-	if [ ! -f "$$ENV_FILE" ]; then \
-		echo "Error: No config at $$ENV_FILE. Run 'make run-pair' first."; \
+	ENV_FILE_HOST="tests/integration/generated/pairs/$$PAIR_ID/.env"; \
+	ENV_FILE_CONTAINER="/app/tests/integration/generated/pairs/$$PAIR_ID/.env"; \
+	if [ ! -f "$$ENV_FILE_HOST" ]; then \
+		echo "Error: No config at $$ENV_FILE_HOST. Run 'make run-pair' first."; \
 		exit 1; \
 	fi; \
-	echo "Using config: $$ENV_FILE"; \
-	podman exec --env-file $$ENV_FILE aap-bridge-bridge-1 \
-		aap-bridge migrate full --dry-run
+	echo "Using config: $$ENV_FILE_HOST"; \
+	$(run-bridge) bash -lc "set -a && source $$ENV_FILE_CONTAINER && set +a && aap-bridge migrate full --dry-run"
 
 test-all: ## Run migration test for all source versions → 2.6
 	@PASS=""; FAIL=""; SKIP=""; \
