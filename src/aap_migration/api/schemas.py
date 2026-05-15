@@ -72,11 +72,33 @@ class MigratePreviewRequest(BaseModel):
     destination_id: str
 
 
+class ExportOptionsRequest(BaseModel):
+    skip_dynamic_hosts: bool | None = None
+    skip_smart_inventories: bool | None = None
+    skip_constructed_inventories: bool | None = None
+    skip_execution_environment_names: list[str] | None = None
+    skip_credential_names: list[str] | None = None
+
+
 class MigrateRunRequest(BaseModel):
     source_id: str
     destination_id: str
     job_id: str
     exclusions: dict[str, list[int]] | None = None
+    dry_run: bool = False
+    force_reimport: bool = False
+    export_options: ExportOptionsRequest | None = None
+
+
+class MigrateResumeRequest(BaseModel):
+    source_id: str
+    destination_id: str
+    checkpoint_id: int
+
+
+class CheckpointListRequest(BaseModel):
+    source_id: str
+    destination_id: str
 
 
 class MigrationResource(BaseModel):

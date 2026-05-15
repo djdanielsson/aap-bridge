@@ -165,6 +165,211 @@ class ResourceImporter:
         self.unresolved_dependencies: list[dict[str, Any]] = []
         self.import_errors: list[dict[str, Any]] = []
 
+    async def precheck_batch(
+        self,
+        resource_type: str,
+        resources: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Query the target for existing resources and map them, returning only new ones.
+
+        Uses composite keys for org-scoped and parent-scoped resources to avoid
+        false matches across organizations. Credentials are handled specially
+        since names aren't unique -- progress-based mapping restoration is used.
+
+        Args:
+            resource_type: Type of resource (e.g. "organizations")
+            resources: Transformed resources (must have ``_source_id``)
+
+        Returns:
+            (resources_to_import, found_count) where found_count is the number
+            already present on the target.
+        """
+        from aap_migration.resources import ORGANIZATION_SCOPED_RESOURCES, PARENT_SCOPED_RESOURCES
+
+        if not resources:
+            return [], 0
+
+        mapping_type = "inventory" if resource_type == "constructed_inventories" else resource_type
+
+        # Credentials can't be reliably matched by name -- restore from progress instead
+        if resource_type == "credentials":
+            return self._precheck_credentials_from_progress(resources, mapping_type)
+
+        identifier_field = self.IDENTIFIER_FIELD
+        is_org_scoped = resource_type in ORGANIZATION_SCOPED_RESOURCES
+        parent_field = PARENT_SCOPED_RESOURCES.get(resource_type)
+
+        # Build source-side index with composite keys
+        resource_by_key: dict[str | tuple, dict[str, Any]] = {}
+        identifiers: list[str] = []
+        for r in resources:
+            name = r.get(identifier_field)
+            source_id = r.get("_source_id")
+            if not name or source_id is None:
+                continue
+            identifiers.append(name)
+            if is_org_scoped:
+                key: str | tuple = (name, r.get("organization"))
+            elif parent_field:
+                key = (name, r.get(parent_field))
+            else:
+                key = name
+            resource_by_key[key] = r
+
+        if not identifiers:
+            return resources, 0
+
+        # Batch-query the target
+        MAX_QUERY_CHARS = 4000
+        batches: list[list[str]] = []
+        cur_batch: list[str] = []
+        cur_len = 0
+        for ident in identifiers:
+            ident_len = len(ident) + 1
+            if cur_len + ident_len > MAX_QUERY_CHARS and cur_batch:
+                batches.append(cur_batch)
+                cur_batch = [ident]
+                cur_len = ident_len
+            else:
+                cur_batch.append(ident)
+                cur_len += ident_len
+        if cur_batch:
+            batches.append(cur_batch)
+
+        existing_by_key: dict[str | tuple, dict[str, Any]] = {}
+        for batch in batches:
+            try:
+                results = await self.client.list_resources(
+                    resource_type=resource_type,
+                    filters={f"{identifier_field}__in": ",".join(batch)},
+                )
+                for item in results:
+                    item_name = item.get(identifier_field)
+                    if not item_name:
+                        continue
+                    if is_org_scoped:
+                        org = item.get("organization")
+                        ekey: str | tuple = (item_name, org) if org is not None else item_name
+                    elif parent_field:
+                        pid = item.get(parent_field)
+                        ekey = (item_name, pid) if pid is not None else item_name
+                    else:
+                        ekey = item_name
+                    existing_by_key[ekey] = item
+            except Exception as e:
+                logger.warning(
+                    "precheck_batch_query_failed",
+                    resource_type=resource_type,
+                    batch_size=len(batch),
+                    error=str(e),
+                )
+
+        # Match source resources to target using composite keys
+        found_count = 0
+        to_import: list[dict[str, Any]] = []
+
+        for r in resources:
+            name = r.get(identifier_field)
+            source_id = r.get("_source_id")
+            if not name or source_id is None:
+                to_import.append(r)
+                continue
+
+            # Build lookup key, mapping source FKs to target-side IDs
+            if is_org_scoped:
+                src_org = r.get("organization")
+                tgt_org = (
+                    self.state.get_mapped_id("organizations", src_org)
+                    if src_org is not None
+                    else None
+                )
+                lookup_key: str | tuple = (name, tgt_org) if tgt_org is not None else name
+            elif parent_field:
+                src_parent = r.get(parent_field)
+                if parent_field == "unified_job_template":
+                    parent_rt = r.get("_ujt_resource_type") or parent_field
+                else:
+                    parent_rt = parent_field
+                tgt_parent = (
+                    self.state.get_mapped_id(parent_rt, src_parent)
+                    if src_parent is not None
+                    else None
+                )
+                lookup_key = (name, tgt_parent) if tgt_parent is not None else name
+            else:
+                lookup_key = name
+
+            if lookup_key in existing_by_key:
+                existing = existing_by_key[lookup_key]
+                self.state.save_id_mapping(
+                    resource_type=mapping_type,
+                    source_id=source_id,
+                    target_id=existing["id"],
+                    source_name=name,
+                    target_name=existing.get(identifier_field),
+                )
+                found_count += 1
+                logger.info(
+                    "resource_already_exists",
+                    resource_type=resource_type,
+                    source_id=source_id,
+                    source_name=name,
+                )
+            else:
+                to_import.append(r)
+
+        if found_count:
+            logger.info(
+                "precheck_batch_complete",
+                resource_type=resource_type,
+                found=found_count,
+                to_import=len(to_import),
+                total=len(resources),
+            )
+
+        return to_import, found_count
+
+    def _precheck_credentials_from_progress(
+        self,
+        resources: list[dict[str, Any]],
+        mapping_type: str,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Handle credential precheck using progress-based mapping restoration.
+
+        Credential names aren't unique in AAP, so name-based target matching is
+        unreliable. Instead, restore IDMapping entries from MigrationProgress for
+        credentials imported in a previous run.
+        """
+        to_import: list[dict[str, Any]] = []
+        found_count = 0
+        for r in resources:
+            source_id = r.get("_source_id")
+            name = r.get("name")
+            if source_id is None:
+                to_import.append(r)
+                continue
+            target_id = self.state.get_progress_target_id("credentials", source_id)
+            if target_id is not None:
+                self.state.save_id_mapping(
+                    resource_type=mapping_type,
+                    source_id=source_id,
+                    target_id=target_id,
+                    source_name=name,
+                    target_name=name,
+                )
+                found_count += 1
+            else:
+                to_import.append(r)
+
+        if found_count:
+            logger.info(
+                "precheck_credentials_from_progress",
+                found=found_count,
+                to_import=len(to_import),
+                total=len(resources),
+            )
+        return to_import, found_count
+
     # ------------------------------------------------------------------
     # Shared classic-RBAC helpers (used by UserImporter and TeamImporter)
     # ------------------------------------------------------------------
@@ -355,6 +560,7 @@ class ResourceImporter:
                     "resource_already_exists",
                     resource_type=resource_type,
                     source_id=source_id,
+                    source_name=data.get("name") or data.get("username") or str(source_id),
                     error=str(e),
                 )
 
@@ -374,7 +580,7 @@ class ResourceImporter:
                         "resource_skipped_exists",
                         resource_type=resource_type,
                         source_id=source_id,
-                        source_name=data.get("name"),
+                        source_name=data.get("name") or data.get("username") or str(source_id),
                     )
                     return None
             else:
@@ -386,6 +592,7 @@ class ResourceImporter:
                 "resource_import_failed",
                 resource_type=resource_type,
                 source_id=source_id,
+                source_name=data.get("name") or data.get("username") or str(source_id),
                 error=str(e),
             )
 
@@ -1468,6 +1675,7 @@ class UserImporter(ResourceImporter):
                     "resource_already_exists",
                     resource_type=resource_type,
                     source_id=source_id,
+                    source_name=data.get("username") or data.get("name") or str(source_id),
                     error=str(e),
                 )
 
@@ -1523,6 +1731,7 @@ class UserImporter(ResourceImporter):
                 "resource_import_failed",
                 resource_type=resource_type,
                 source_id=source_id,
+                source_name=data.get("username") or data.get("name") or str(source_id),
                 error=error_msg,
             )
 

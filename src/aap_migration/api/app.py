@@ -25,6 +25,7 @@ from aap_migration.api.schemas import ConnectionCreate
 from aap_migration.api.services.connection_service import ConnectionService
 from aap_migration.api.services.job_service import JobService
 from aap_migration.api.websocket import router as ws_router
+from aap_migration.utils.logging import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 def create_app(db_url: str = "") -> FastAPI:
     global _db_url
     _db_url = db_url or os.environ.get("MIGRATION_STATE_DB_PATH", "")
+
+    configure_logging(level="WARNING", structlog_level="DEBUG")
 
     app = FastAPI(
         title="AAP Bridge",

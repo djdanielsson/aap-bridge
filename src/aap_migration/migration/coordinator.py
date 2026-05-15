@@ -187,6 +187,7 @@ class MigrationCoordinator:
         # Schema comparison results (populated by compare_schemas_before_migration)
         self.schema_comparisons: dict[str, ComparisonResult] = {}
         self.schema_comparator = SchemaComparator()
+        self._defer_project_sync = True
 
         self.metrics = {
             "start_time": None,
@@ -207,6 +208,48 @@ class MigrationCoordinator:
             target_url=config.target.url,
             dry_run=config.dry_run,
         )
+
+    async def _seed_builtin_credential_types(self) -> None:
+        """Seed id_mappings with built-in credential types from source and target.
+
+        Fetches managed credential types from both instances, matches by name,
+        and creates id_mapping records so credential dependency resolution works.
+        """
+        try:
+            source_types: dict[str, int] = {}
+            for ct in await self.source_client.get_credential_types(params={"managed": "true"}):
+                source_types[ct["name"]] = ct["id"]
+
+            target_types: dict[str, int] = {}
+            for ct in await self.target_client.list_resources(
+                "credential_types", filters={"managed": "true"}
+            ):
+                target_types[ct["name"]] = ct["id"]
+
+            seeded = 0
+            for name, src_id in source_types.items():
+                tgt_id = target_types.get(name)
+                if tgt_id:
+                    self.state.mark_completed(
+                        resource_type="credential_types",
+                        source_id=src_id,
+                        target_id=tgt_id,
+                        target_name=name,
+                        source_name=name,
+                    )
+                    seeded += 1
+
+            logger.info(
+                "builtin_credential_types_seeded",
+                count=seeded,
+                source_count=len(source_types),
+                target_count=len(target_types),
+            )
+        except Exception as e:
+            logger.warning(
+                "seed_builtin_credential_types_failed",
+                error=str(e),
+            )
 
     async def compare_and_verify_credentials(
         self,
@@ -308,6 +351,9 @@ class MigrationCoordinator:
         )
 
         try:
+            # Seed built-in credential type mappings before any transform runs
+            await self._seed_builtin_credential_types()
+
             # Use progress display as context manager
             with self.progress_display:
                 self.progress_display.set_total_phases(len(phases_to_execute))
@@ -425,6 +471,9 @@ class MigrationCoordinator:
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
+    # Phases that need their transformed data kept for post-import reconciliation
+    _RECONCILIATION_PHASES = {"identity", "constructed_inventories", "projects"}
+
     async def _execute_phase(self, phase: dict[str, Any]) -> None:
         """Execute a single migration phase.
 
@@ -433,6 +482,7 @@ class MigrationCoordinator:
         """
         phase_name = phase["name"]
         resource_types = phase["resource_types"]
+        needs_reconciliation = phase_name in self._RECONCILIATION_PHASES
 
         phase_stats = {
             "exported": 0,
@@ -441,6 +491,8 @@ class MigrationCoordinator:
             "skipped": 0,
             "failed": 0,
         }
+        # Collect transformed data per resource type for reconciliation
+        transformed_by_type: dict[str, list[dict[str, Any]]] = {}
 
         for resource_type in resource_types:
             try:
@@ -450,11 +502,16 @@ class MigrationCoordinator:
                     resource_type=resource_type,
                 )
 
-                # Execute ETL pipeline for this resource type
+                collector: list[dict[str, Any]] | None = [] if needs_reconciliation else None
+
                 stats = await self._execute_etl_pipeline(
                     resource_type=resource_type,
                     phase_config=phase,
+                    transformed_collector=collector,
                 )
+
+                if collector is not None:
+                    transformed_by_type[resource_type] = collector
 
                 # Update phase statistics
                 phase_stats["exported"] += stats.get("exported", 0)
@@ -480,6 +537,10 @@ class MigrationCoordinator:
                 phase_stats["failed"] += 1
                 raise
 
+        # Post-import reconciliation hooks
+        if not self.config.dry_run and needs_reconciliation:
+            await self._run_reconciliation(phase_name, transformed_by_type)
+
         # Update global metrics
         self.metrics["total_resources_exported"] += phase_stats["exported"]
         self.metrics["total_resources_imported"] += phase_stats["imported"]
@@ -501,16 +562,129 @@ class MigrationCoordinator:
                 stats=phase_stats,
             )
 
+    async def _run_reconciliation(
+        self,
+        phase_name: str,
+        transformed_by_type: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        """Run post-import reconciliation hooks for specific phases."""
+        try:
+            if phase_name == "identity":
+                users = transformed_by_type.get("users", [])
+                if users:
+                    user_importer = create_importer(
+                        resource_type="users",
+                        client=self.target_client,
+                        state=self.state,
+                        performance_config=self.config.performance,
+                    )
+                    if hasattr(user_importer, "sync_team_memberships_for_existing_users"):
+                        logger.info(
+                            "reconciliation_team_memberships",
+                            user_count=len(users),
+                        )
+                        await user_importer.sync_team_memberships_for_existing_users(users)
+
+            elif phase_name == "constructed_inventories":
+                constructed = transformed_by_type.get("constructed_inventories", [])
+                if constructed:
+                    ci_importer = create_importer(
+                        resource_type="constructed_inventories",
+                        client=self.target_client,
+                        state=self.state,
+                        performance_config=self.config.performance,
+                    )
+                    if hasattr(ci_importer, "sync_input_inventories_for_constructed_resources"):
+                        logger.info(
+                            "reconciliation_constructed_inventories",
+                            count=len(constructed),
+                        )
+                        await ci_importer.sync_input_inventories_for_constructed_resources(
+                            constructed
+                        )
+
+            elif phase_name == "projects":
+                projects = transformed_by_type.get("projects", [])
+                deferred = [p for p in projects if "_deferred_scm_details" in p]
+                if deferred:
+                    await self._patch_deferred_projects(deferred)
+
+        except Exception as e:
+            logger.warning(
+                "reconciliation_failed",
+                phase=phase_name,
+                error=str(e),
+            )
+
+    async def _patch_deferred_projects(self, projects: list[dict[str, Any]]) -> None:
+        """Apply deferred SCM details to already-imported projects via PATCH.
+
+        When defer_project_sync is True, projects are initially imported without
+        SCM configuration. This method patches them in batches and waits for
+        each project to sync before proceeding.
+        """
+        import asyncio
+
+        batch_size = self.config.performance.project_patch_batch_size
+        sync_timeout = self.config.performance.project_sync_timeout
+        poll_interval = self.config.performance.project_sync_poll_interval
+
+        logger.info("deferred_project_scm_patch_start", count=len(projects))
+        patched = 0
+
+        for i in range(0, len(projects), batch_size):
+            batch = projects[i : i + batch_size]
+
+            for project in batch:
+                source_id = project.get("_source_id")
+                if source_id is None:
+                    continue
+                target_id = self.state.get_mapped_id("projects", source_id)
+                if target_id is None:
+                    logger.warning(
+                        "deferred_project_no_target_id",
+                        source_id=source_id,
+                        name=project.get("name"),
+                    )
+                    continue
+
+                scm_details = dict(project["_deferred_scm_details"])
+                # Resolve credential source ID -> target ID
+                cred_src_id = scm_details.pop("credential", None)
+                if cred_src_id is not None:
+                    cred_tgt_id = self.state.get_mapped_id("credentials", cred_src_id)
+                    if cred_tgt_id is not None:
+                        scm_details["credential"] = cred_tgt_id
+
+                try:
+                    await self.target_client.update_resource("projects", target_id, scm_details)
+                    patched += 1
+                except Exception as e:
+                    logger.warning(
+                        "deferred_project_patch_failed",
+                        target_id=target_id,
+                        name=project.get("name"),
+                        error=str(e),
+                    )
+
+            # Wait for projects to sync after each batch
+            if patched > 0:
+                await asyncio.sleep(min(poll_interval, 10))
+
+        logger.info("deferred_project_scm_patch_complete", patched=patched, total=len(projects))
+
     async def _execute_etl_pipeline(
         self,
         resource_type: str,
         phase_config: dict[str, Any],
+        transformed_collector: list[dict[str, Any]] | None = None,
     ) -> dict[str, int]:
         """Execute Export → Transform → Import pipeline for a resource type.
 
         Args:
             resource_type: Type of resource to migrate
             phase_config: Phase configuration
+            transformed_collector: Optional list to collect transformed resources into
 
         Returns:
             Statistics for this resource type
@@ -537,8 +711,10 @@ class MigrationCoordinator:
             transformer = create_transformer(
                 resource_type=resource_type,
                 dry_run=self.config.dry_run,
-                state=self.state,  # Pass state for dependency validation
-                defer_project_sync=False,
+                state=self.state,
+                config=self.config,
+                schema_comparison=self.schema_comparisons.get(resource_type),
+                defer_project_sync=self._defer_project_sync,
             )
 
             importer = create_importer(
@@ -558,8 +734,24 @@ class MigrationCoordinator:
             # Standard ETL pipeline
             resources_to_import = []
 
-            # Export phase
-            async for resource in exporter.export():
+            # Export phase — use parallel fetching when available for 3-5x speedup
+            if hasattr(exporter, "export_parallel"):
+                from aap_migration.resources import get_endpoint
+
+                try:
+                    endpoint = get_endpoint(resource_type)
+                except KeyError:
+                    endpoint = f"{resource_type}/"
+                export_iter = exporter.export_parallel(
+                    resource_type=resource_type,
+                    endpoint=endpoint,
+                    page_size=self.config.performance.default_page_size,
+                    max_concurrent_pages=self.config.performance.max_concurrent_pages,
+                )
+            else:
+                export_iter = exporter.export()
+
+            async for resource in export_iter:
                 stats["exported"] += 1
 
                 # Update progress
@@ -577,8 +769,18 @@ class MigrationCoordinator:
                         data=resource,
                         validate=True,
                     )
+                    # Pre-seed target ID mappings for managed/built-in resources
+                    if hasattr(transformer, "populate_target_id_from_target"):
+                        await transformer.populate_target_id_from_target(
+                            transformed,
+                            self.target_client,
+                            self.state,
+                            source_id,
+                        )
                     stats["transformed"] += 1
                     resources_to_import.append(transformed)
+                    if transformed_collector is not None:
+                        transformed_collector.append(transformed)
 
                     # Update progress
                     if self.progress_tracker:
@@ -649,15 +851,30 @@ class MigrationCoordinator:
                     task_id = self.progress_display.phase_tasks[self._current_phase_id]
                     self.progress_display.phase_progress.update(task_id, total=stats["exported"])
 
+            # Pre-scan: batch-query the target to find already-existing resources
+            # so we skip them upfront instead of failing on create then falling
+            # back to conflict resolution.
+            if not self.config.dry_run and resources_to_import:
+                resources_to_import, precheck_found = await importer.precheck_batch(
+                    resource_type=resource_type,
+                    resources=resources_to_import,
+                )
+                if precheck_found:
+                    stats["skipped"] += precheck_found
+
+                    if self.progress_display and self._current_phase_id:
+                        self.progress_display.update_phase(
+                            self._current_phase_id,
+                            completed=stats["imported"] + stats["failed"],
+                            failed=stats["failed"],
+                            skipped=stats["skipped"],
+                        )
+
             # Import phase
             if not self.config.dry_run:
-                # Track import-phase progress separately for Rich display
-                # completed = successful imports (not failures)
-                # failed = import failures only
-                # skipped = transform skips + import skips (already migrated)
-                import_succeeded = 0  # Successful imports
-                import_failed = 0  # Failed imports
-                import_skipped = 0  # Already migrated (import-time skips)
+                import_succeeded = 0
+                import_failed = 0
+                import_skipped = 0
                 inventory_source_ids_for_sync: list[int] = []
 
                 for resource in resources_to_import:
@@ -671,6 +888,10 @@ class MigrationCoordinator:
                         data=resource,
                     )
 
+                    resource_name = (
+                        resource.get("name") or resource.get("username") or str(source_id)
+                    )
+
                     if result:
                         policy_skip = (
                             isinstance(result, dict)
@@ -680,11 +901,24 @@ class MigrationCoordinator:
                         if policy_skip:
                             stats["skipped"] += 1
                             import_skipped += 1
+                            logger.info(
+                                "resource_skipped",
+                                resource_type=resource_type,
+                                source_id=source_id,
+                                source_name=resource_name,
+                                reason="policy_skip",
+                            )
                             if self.progress_tracker:
                                 self.progress_tracker.update_resource(skipped=1)
                         else:
                             stats["imported"] += 1
                             import_succeeded += 1
+                            logger.info(
+                                "resource_created",
+                                resource_type=resource_type,
+                                source_id=source_id,
+                                source_name=resource_name,
+                            )
                             if (
                                 resource_type == "inventory_sources"
                                 and isinstance(result, dict)
@@ -694,7 +928,6 @@ class MigrationCoordinator:
                             if self.progress_tracker:
                                 self.progress_tracker.update_resource(imported=1)
                     else:
-                        # Check if it was a failure or just skipped (already imported)
                         if self.state.is_migrated(resource_type, source_id):
                             stats["skipped"] += 1
                             import_skipped += 1

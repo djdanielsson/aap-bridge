@@ -1,5 +1,7 @@
+from typing import Any
+
 from aap_migration.api.models import Connection
-from aap_migration.config import AAPInstanceConfig, MigrationConfig, StateConfig
+from aap_migration.config import AAPInstanceConfig, ExportConfig, MigrationConfig, StateConfig
 
 
 def connection_to_aap_config(conn: Connection) -> AAPInstanceConfig:
@@ -14,9 +16,19 @@ def connection_to_aap_config(conn: Connection) -> AAPInstanceConfig:
     )
 
 
-def build_migration_config(source: Connection, dest: Connection, db_url: str) -> MigrationConfig:
+def build_migration_config(
+    source: Connection,
+    dest: Connection,
+    db_url: str,
+    *,
+    dry_run: bool = False,
+    export_overrides: dict[str, Any] | None = None,
+) -> MigrationConfig:
+    export_kwargs = dict(export_overrides) if export_overrides else {}
     return MigrationConfig(
         source=connection_to_aap_config(source),
         target=connection_to_aap_config(dest),
         state=StateConfig(db_path=db_url),
+        dry_run=dry_run,
+        export=ExportConfig(**export_kwargs),
     )

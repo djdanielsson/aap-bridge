@@ -83,6 +83,7 @@ def configure_logging(
     log_file: str | None = None,
     file_level: str | None = None,
     enable_colors: bool = True,
+    structlog_level: str | None = None,
 ) -> None:
     """Configure structured logging for the application.
 
@@ -93,6 +94,9 @@ def configure_logging(
         log_file: Optional path to log file
         file_level: File log level (defaults to DEBUG for detailed file logs)
         enable_colors: Enable colored output in console mode
+        structlog_level: Minimum level for structlog's bound logger filter. Defaults to
+                        same as `level`. Set lower than `level` to allow other handlers
+                        (e.g. JobLogHandler) to receive messages that the console suppresses.
 
     Note:
         - Console output is ALWAYS human-readable (never JSON) for clean CLI experience
@@ -102,6 +106,8 @@ def configure_logging(
     """
     # Convert string level to logging constant
     console_level = getattr(logging, level.upper(), logging.WARNING)
+    sl = structlog_level or level
+    bound_logger_level = getattr(logging, sl.upper(), logging.WARNING)
     file_log_level = getattr(logging, (file_level or "DEBUG").upper(), logging.DEBUG)
 
     # Configure standard library logging with Rich integration
@@ -148,11 +154,9 @@ def configure_logging(
         structlog.dev.ConsoleRenderer(colors=False),  # RichHandler handles coloring
     ]
 
-    # Configure structlog with console level
-    # Note: structlog will respect the stdlib logging levels set above
     structlog.configure(
         processors=processors,
-        wrapper_class=structlog.make_filtering_bound_logger(console_level),
+        wrapper_class=structlog.make_filtering_bound_logger(bound_logger_level),
         context_class=dict,
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,

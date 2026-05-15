@@ -5,6 +5,7 @@ import threading
 class JobService:
     def __init__(self) -> None:
         self._log_buffers: dict[str, list[str]] = {}
+        self._event_buffers: dict[str, list[dict]] = {}
         self._tasks: dict[str, asyncio.Task] = {}  # type: ignore[type-arg]
         self._statuses: dict[str, dict] = {}
         self._lock = threading.Lock()
@@ -12,6 +13,7 @@ class JobService:
     def register_job(self, job_id: str) -> None:
         with self._lock:
             self._log_buffers[job_id] = []
+            self._event_buffers[job_id] = []
             self._statuses[job_id] = {"status": "running"}
 
     def append_log(self, job_id: str, line: str) -> None:
@@ -22,6 +24,16 @@ class JobService:
     def get_logs_since(self, job_id: str, offset: int) -> list[str]:
         with self._lock:
             buf = self._log_buffers.get(job_id, [])
+            return buf[offset:]
+
+    def append_event(self, job_id: str, data: dict) -> None:
+        with self._lock:
+            if job_id in self._event_buffers:
+                self._event_buffers[job_id].append(data)
+
+    def get_events_since(self, job_id: str, offset: int) -> list[dict]:
+        with self._lock:
+            buf = self._event_buffers.get(job_id, [])
             return buf[offset:]
 
     def get_job_status(self, job_id: str) -> dict | None:
