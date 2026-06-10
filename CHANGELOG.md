@@ -48,7 +48,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - **CI/CD Docs Workflow**: GitHub Actions workflow added to publish MkDocs documentation
   via `gh-deploy` on push to `main`
 - **AAP Token Retrieval Docs**: `curl` commands with `jq` for retrieving API tokens from
-  AAP 2.4 and earlier (`/api/v2/tokens/`) and AAP 2.6+ (`/api/gateway/v1/tokens/`) are
+  AAP 2.4 and earlier (`/api/v2/tokens/`) and AAP 2.5+ (`/api/gateway/v1/tokens/`) are
   now documented
 
 ### Changed
