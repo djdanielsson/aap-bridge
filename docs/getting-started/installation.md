@@ -10,6 +10,13 @@ AAP Bridge supports two workflows:
 The containerized workflow is optional. The original local host setup remains fully supported.
 
 ## Prerequisites
+- **Python 3.12** or higher
+- **PostgreSQL** database (for state management)
+- **uv** package manager (recommended) or pip
+- Network access to source and target AAP instances
+- **API tokens**: read-only scope for the source AAP (with permission to read
+  all resources being migrated); read/write scope with admin-level access for
+  the target AAP
 
 ### Hardware Requirements
 
