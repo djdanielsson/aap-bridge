@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from aap_migration.client.aap_source_client import AAPSourceClient
-from aap_migration.client.api_layout import ApiMode
+from aap_migration.client.api_layout import ApiMode, strip_api_path_prefix
 from aap_migration.client.exceptions import APIError
 from aap_migration.config import (
     PerformanceConfig,
@@ -1657,14 +1657,7 @@ class WorkflowExporter(ResourceExporter):
         """Convert related URL to client endpoint path (without API prefix)."""
         if not url or not isinstance(url, str):
             return None
-        for marker in ("/api/controller/v2/", "/api/gateway/v1/", "/api/v2/"):
-            if marker in url:
-                return url.split(marker, 1)[1]
-        cleaned = url.lstrip("/")
-        for prefix in ("api/controller/v2/", "api/gateway/v1/", "api/v2/"):
-            if cleaned.startswith(prefix):
-                return cleaned[len(prefix) :]
-        return cleaned
+        return strip_api_path_prefix(url)
 
     async def _attach_workflow_approval_template_data(
         self, nodes: list[dict[str, Any]]

@@ -11,7 +11,12 @@ from urllib.parse import urljoin
 
 import httpx
 
-from aap_migration.client.api_layout import ApiLayout, build_api_layout, normalize_host_url
+from aap_migration.client.api_layout import (
+    ApiLayout,
+    build_api_layout,
+    normalize_host_url,
+    strip_api_path_prefix,
+)
 from aap_migration.client.exceptions import (
     APIError,
     AuthenticationError,
@@ -139,11 +144,7 @@ class BaseAPIClient:
         """Strip a known API prefix from an absolute pagination or related URL."""
         if self._api_layout is not None:
             return self._api_layout.relative_endpoint(path)
-        endpoint = path.lstrip("/")
-        for marker in ("/api/controller/v2/", "/api/gateway/v1/", "/api/v2/"):
-            if marker in path:
-                return path.split(marker, 1)[1]
-        return endpoint
+        return strip_api_path_prefix(path)
 
     def _build_headers(self) -> dict[str, str]:
         """Build HTTP headers for requests.

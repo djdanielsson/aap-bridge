@@ -140,7 +140,7 @@ class BulkOperations:
         Returns:
             API response
         """
-        # Note: AAPTargetClient base_url already includes /api/controller/v2
+        # Note: endpoints are routed via ApiLayout (gateway or controller base).
         endpoint = "bulk/host_create/"
         payload = {
             "inventory": inventory_id,
@@ -305,7 +305,7 @@ class BulkOperations:
         Returns:
             API response
         """
-        # Note: AAPTargetClient base_url already includes /api/controller/v2
+        # Note: endpoints are routed via ApiLayout (gateway or controller base).
         endpoint = "bulk/job_launch/"
         payload = {
             "templates": job_template_ids,
@@ -405,7 +405,7 @@ class BulkOperations:
         Returns:
             API response
         """
-        # Note: AAPTargetClient base_url already includes /api/controller/v2
+        # Note: endpoints are routed via ApiLayout (gateway or controller base).
         endpoint = "bulk/host_delete/"
         payload = {
             "hosts": host_ids,
@@ -545,6 +545,6 @@ class BulkOperations:
         Returns:
             Operation status data
         """
-        # Note: AAPTargetClient base_url already includes /api/controller/v2
+        # Note: endpoints are routed via ApiLayout (gateway or controller base).
         endpoint = f"bulk/operations/{operation_id}/"
         return await self.client.get(endpoint)

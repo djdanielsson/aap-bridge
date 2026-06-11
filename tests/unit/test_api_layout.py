@@ -3,14 +3,50 @@
 import pytest
 
 from aap_migration.client.api_layout import (
+    CONTROLLER_API_PREFIX,
+    GATEWAY_API_PREFIX,
+    LEGACY_API_PREFIX,
     ApiLayout,
     ApiMode,
+    api_topology_from_url,
     build_api_layout,
+    join_api_base,
     normalize_host_url,
     normalize_rbac_content_type,
     parse_aap_major_minor,
+    strip_api_path_prefix,
     uses_gateway_topology,
 )
+
+
+class TestApiPathConstants:
+    def test_join_api_base(self) -> None:
+        assert join_api_base("https://aap.example.com", LEGACY_API_PREFIX) == (
+            "https://aap.example.com/api/v2"
+        )
+
+    @pytest.mark.parametrize(
+        ("path", "expected"),
+        [
+            ("/api/controller/v2/organizations/3/", "organizations/3/"),
+            ("/api/gateway/v1/users/", "users/"),
+            ("/api/v2/projects/1/", "projects/1/"),
+            ("api/controller/v2/job_templates/5/", "job_templates/5/"),
+        ],
+    )
+    def test_strip_api_path_prefix(self, path: str, expected: str) -> None:
+        assert strip_api_path_prefix(path) == expected
+
+    @pytest.mark.parametrize(
+        ("url", "topology"),
+        [
+            ("https://aap.example.com/api/gateway/v1", "gateway"),
+            ("https://aap.example.com/api/controller/v2", "controller"),
+            ("https://aap.example.com/api/v2", "legacy"),
+        ],
+    )
+    def test_api_topology_from_url(self, url: str, topology: str) -> None:
+        assert api_topology_from_url(url) == topology
 
 
 class TestNormalizeHostUrl:
@@ -167,7 +203,7 @@ class TestBuildApiLayout:
 
         assert layout.mode is ApiMode.LEGACY
         assert layout.aap_version == "2.4.1"
-        assert layout.legacy_base == "https://aap24.example.com/api/v2"
+        assert layout.legacy_base == join_api_base("https://aap24.example.com", LEGACY_API_PREFIX)
         assert layout.gateway_base is None
         assert layout.controller_base is None
 
@@ -179,5 +215,7 @@ class TestBuildApiLayout:
 
         assert layout.mode is ApiMode.GATEWAY
         assert layout.host_url == "https://aap25.example.com"
-        assert layout.gateway_base == "https://aap25.example.com/api/gateway/v1"
-        assert layout.controller_base == "https://aap25.example.com/api/controller/v2"
+        assert layout.gateway_base == join_api_base("https://aap25.example.com", GATEWAY_API_PREFIX)
+        assert layout.controller_base == join_api_base(
+            "https://aap25.example.com", CONTROLLER_API_PREFIX
+        )

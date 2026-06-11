@@ -14,20 +14,33 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from urllib.parse import urlparse
-
 from aap_migration.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
-# API path suffixes stripped from configured URLs (longest first).
-_API_PATH_SUFFIXES: tuple[str, ...] = (
-    "/api/gateway/v1",
-    "/api/controller/v2",
-    "/api/v2",
-    "/api/gateway",
-    "/api/controller",
+# Canonical AAP API path roots (single source of truth).
+LEGACY_API_PREFIX = "/api/v2"
+GATEWAY_API_PREFIX = "/api/gateway/v1"
+CONTROLLER_API_PREFIX = "/api/controller/v2"
+GATEWAY_API_FAMILY = "/api/gateway"
+CONTROLLER_API_FAMILY = "/api/controller"
+
+# Versioned API roots, longest first (for URL normalization and href stripping).
+API_VERSIONED_PREFIXES: tuple[str, ...] = (
+    GATEWAY_API_PREFIX,
+    CONTROLLER_API_PREFIX,
+    LEGACY_API_PREFIX,
 )
+
+# Path suffixes stripped from configured host URLs (longest first).
+API_PATH_SUFFIXES: tuple[str, ...] = (
+    *API_VERSIONED_PREFIXES,
+    GATEWAY_API_FAMILY,
+    CONTROLLER_API_FAMILY,
+)
+
+# Markers with trailing slash for stripping absolute hrefs and pagination URLs.
+API_PATH_MARKERS: tuple[str, ...] = tuple(f"{prefix}/" for prefix in API_VERSIONED_PREFIXES)
 
 # First path segment -> route to gateway API on AAP 2.5+.
 GATEWAY_ENDPOINT_SEGMENTS: frozenset[str] = frozenset(
@@ -92,14 +105,38 @@ def normalize_rbac_content_type(content_type: str | None) -> str | None:
     return _RBAC_CONTENT_TYPE_ALIASES.get(content_type, content_type)
 
 
-def _api_topology_from_exported_base(exported_api_base: str) -> str | None:
-    """Infer gateway vs controller vs legacy from an exported ``_api_base`` path."""
-    normalized = exported_api_base.rstrip("/")
-    if "/api/gateway/" in normalized or normalized.endswith("/api/gateway/v1"):
+def join_api_base(host_url: str, api_prefix: str) -> str:
+    """Join a normalized host URL with an API path prefix."""
+    return f"{host_url.rstrip('/')}{api_prefix}"
+
+
+def strip_api_path_prefix(path: str) -> str:
+    """Strip a known AAP API path prefix, returning the relative endpoint."""
+    if not path:
+        return path
+
+    normalized = path if path.startswith("/") else f"/{path}"
+    for marker in API_PATH_MARKERS:
+        if marker in normalized:
+            return normalized.split(marker, 1)[1]
+
+    cleaned = normalized.lstrip("/")
+    for marker in API_PATH_MARKERS:
+        bare = marker.lstrip("/")
+        if cleaned.startswith(bare):
+            return cleaned[len(bare) :]
+
+    return cleaned
+
+
+def api_topology_from_url(url: str) -> str | None:
+    """Infer gateway vs controller vs legacy from an API base or href URL."""
+    normalized = url.rstrip("/")
+    if GATEWAY_API_FAMILY in normalized or normalized.endswith(GATEWAY_API_PREFIX):
         return "gateway"
-    if "/api/controller/" in normalized or normalized.endswith("/api/controller/v2"):
+    if CONTROLLER_API_FAMILY in normalized or normalized.endswith(CONTROLLER_API_PREFIX):
         return "controller"
-    if "/api/v2" in normalized:
+    if LEGACY_API_PREFIX in normalized:
         return "legacy"
     return None
 
@@ -116,7 +153,7 @@ def role_definition_api_base(
     gateway/controller bases — not POST back to the source host.
     """
     if exported_api_base:
-        topology = _api_topology_from_exported_base(exported_api_base)
+        topology = api_topology_from_url(exported_api_base)
         if topology == "gateway" and layout.gateway_base:
             return layout.gateway_base
         if topology == "controller" and layout.controller_base:
@@ -166,14 +203,7 @@ class ApiLayout:
     @property
     def path_prefixes(self) -> tuple[str, ...]:
         """URL path prefixes for stripping absolute hrefs (longest first)."""
-        prefixes: list[str] = []
-        for base in (self.legacy_base, self.gateway_base, self.controller_base):
-            if not base:
-                continue
-            path = urlparse(base).path.rstrip("/")
-            if path:
-                prefixes.append(path)
-        return tuple(sorted(set(prefixes), key=len, reverse=True))
+        return API_VERSIONED_PREFIXES
 
     def base_for_endpoint(self, endpoint: str) -> str:
         """Return the API base URL for a relative endpoint path."""
@@ -225,27 +255,13 @@ class ApiLayout:
 
     def relative_endpoint(self, path: str) -> str:
         """Strip a known API prefix from an absolute or relative path."""
-        if not path:
-            return path
-
-        normalized = path if path.startswith("/") else f"/{path}"
-        for prefix in self.path_prefixes:
-            marker = f"{prefix}/"
-            if marker in normalized:
-                return normalized.split(marker, 1)[1]
-
-        cleaned = normalized.lstrip("/")
-        for prefix in self.path_prefixes:
-            bare = prefix.lstrip("/")
-            if cleaned.startswith(f"{bare}/"):
-                return cleaned[len(bare) + 1 :]
-        return cleaned
+        return strip_api_path_prefix(path)
 
 
 def normalize_host_url(url: str) -> str:
     """Normalize a configured URL to scheme + host (no API path suffix)."""
     normalized = url.rstrip("/")
-    for suffix in _API_PATH_SUFFIXES:
+    for suffix in API_PATH_SUFFIXES:
         if normalized.endswith(suffix):
             stripped = normalized[: -len(suffix)].rstrip("/")
             if stripped != normalized:
@@ -289,15 +305,15 @@ def build_api_layout(host_url: str, aap_version: str) -> ApiLayout:
             host_url=normalized_host,
             mode=ApiMode.GATEWAY,
             aap_version=aap_version,
-            gateway_base=f"{normalized_host}/api/gateway/v1",
-            controller_base=f"{normalized_host}/api/controller/v2",
+            gateway_base=join_api_base(normalized_host, GATEWAY_API_PREFIX),
+            controller_base=join_api_base(normalized_host, CONTROLLER_API_PREFIX),
         )
     else:
         layout = ApiLayout(
             host_url=normalized_host,
             mode=ApiMode.LEGACY,
             aap_version=aap_version,
-            legacy_base=f"{normalized_host}/api/v2",
+            legacy_base=join_api_base(normalized_host, LEGACY_API_PREFIX),
         )
 
     logger.info(
