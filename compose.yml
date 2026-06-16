@@ -49,7 +49,7 @@ services:
       - -ec
       - |
         mkdir -p /app/exports /app/reports /app/logs
-        chown -R 998:998 /app/exports /app/reports /app/logs
+        chown -R bridge:bridge /app/exports /app/reports /app/logs
         touch /tmp/ready
         exec sleep infinity
     security_opt:
