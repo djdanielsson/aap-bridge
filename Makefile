@@ -9,8 +9,19 @@
 #  Local development (runs on host, no containers needed)
 # ===========================================================================
 
-PYTHON := python3
-PIP := uv pip
+VENV := .venv
+PYTHON3 := python3
+PYTHON312 := $(shell command -v python3.12 2>/dev/null)
+PYTHON := $(VENV)/bin/python
+
+# Prefer uv when installed; override with: make setup USE_UV=0
+USE_UV ?= $(shell command -v uv >/dev/null 2>&1 && echo 1 || echo 0)
+ifeq ($(USE_UV),1)
+  PIP := uv pip
+else
+  PIP := $(VENV)/bin/pip
+endif
+
 PYTEST := $(PYTHON) -m pytest
 BLACK := $(PYTHON) -m black
 ISORT := $(PYTHON) -m isort
@@ -21,11 +32,19 @@ SRC_DIR := src
 TESTS_DIR := tests
 DOCS_DIR := docs
 
+define require_venv
+	@test -x "$(PYTHON)" || { \
+		echo "Missing $(VENV). Run 'make setup' first."; \
+		exit 1; \
+	}
+endef
+
 help: ## Show this help message
 	@echo "AAP Bridge - Development Commands"
 	@echo ""
 	@echo "  Local development (no containers):"
-	@echo "    make setup                         # Complete dev setup"
+	@echo "    make setup                         # Complete dev setup (uv or pip)"
+	@echo "    make setup USE_UV=0                # Force stdlib venv + pip"
 	@echo "    make test                          # Run all tests"
 	@echo "    make check                         # Format + lint + typecheck + test"
 	@echo "    make docs-serve                    # Serve docs locally"
@@ -42,17 +61,35 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "    \033[36m%-28s\033[0m %s\n", $$1, $$2}'
 
-venv: ## Create virtual environment with uv
-	uv venv --seed --python 3.12
+venv: ## Create virtual environment in .venv
+ifeq ($(USE_UV),1)
+	uv venv --seed --python 3.12 --allow-existing
+else
+	@if [ ! -d "$(VENV)" ]; then \
+		if [ -n "$(PYTHON312)" ]; then \
+			"$(PYTHON312)" -m venv "$(VENV)"; \
+		elif $(PYTHON3) -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)'; then \
+			$(PYTHON3) -m venv "$(VENV)"; \
+		else \
+			echo "Python 3.12 is required for the pip-based setup path."; \
+			echo "Install python3.12 (or the python3.12-venv package on Debian/Ubuntu),"; \
+			echo "or install uv and re-run: make setup"; \
+			exit 1; \
+		fi; \
+	fi
+endif
 
-install: ## Install production dependencies
+install: venv ## Install production dependencies
+	$(require_venv)
 	$(PIP) install -r requirements.txt
 
-install-dev: ## Install development dependencies
+install-dev: venv ## Install development dependencies
+	$(require_venv)
 	$(PIP) install -r requirements-dev.txt
 	$(PYTHON) -m pre_commit install
 
-install-editable: ## Install package in editable mode
+install-editable: venv ## Install package in editable mode
+	$(require_venv)
 	$(PIP) install -e .
 
 clean: ## Clean up generated files
@@ -62,56 +99,69 @@ clean: ## Clean up generated files
 	rm -rf build dist .eggs htmlcov .coverage coverage.xml .pytest_cache .mypy_cache .ruff_cache
 	rm -f migration_state.db*
 
-format: ## Format code with black and isort
+format: venv ## Format code with black and isort
+	$(require_venv)
 	$(BLACK) $(SRC_DIR) $(TESTS_DIR)
 	$(ISORT) $(SRC_DIR) $(TESTS_DIR)
 
-lint: ## Run linters (ruff)
+lint: venv ## Run linters (ruff)
+	$(require_venv)
 	$(RUFF) check $(SRC_DIR) $(TESTS_DIR)
 
-typecheck: ## Run type checking with mypy
+typecheck: venv ## Run type checking with mypy
+	$(require_venv)
 	$(MYPY) $(SRC_DIR)
 
-test: ## Run all tests
+test: venv ## Run all tests
+	$(require_venv)
 	$(PYTEST) $(TESTS_DIR)
 
-test-unit: ## Run only unit tests
+test-unit: venv ## Run only unit tests
+	$(require_venv)
 	$(PYTEST) $(TESTS_DIR)/unit -v
 
-test-integration: ## Run only integration tests
+test-integration: venv ## Run only integration tests
+	$(require_venv)
 	$(PYTEST) $(TESTS_DIR)/integration -v -m integration
 
-test-performance: ## Run only performance tests
+test-performance: venv ## Run only performance tests
+	$(require_venv)
 	$(PYTEST) $(TESTS_DIR)/performance -v -m performance
 
-test-cov: ## Run tests with coverage report
+test-cov: venv ## Run tests with coverage report
+	$(require_venv)
 	$(PYTEST) $(TESTS_DIR) --cov=$(SRC_DIR) --cov-report=html --cov-report=term
 
 .PHONY: test-watch
-test-watch: ## Run tests in watch mode
+test-watch: venv ## Run tests in watch mode
+	$(require_venv)
 	$(PYTEST) $(TESTS_DIR) -f
 
 check: format lint typecheck test ## Run all checks (format, lint, typecheck, test)
 
 .PHONY: pre-commit
-pre-commit: ## Run pre-commit hooks on all files
+pre-commit: venv ## Run pre-commit hooks on all files
+	$(require_venv)
 	$(PYTHON) -m pre_commit run --all-files
 
-docs: ## Build documentation
-	uv pip install -e ".[docs]"
-	uv run mkdocs build
+docs: venv ## Build documentation
+	$(require_venv)
+	$(PIP) install -e ".[docs]"
+	$(PYTHON) -m mkdocs build
 
-docs-serve: ## Serve documentation locally
-	uv pip install -e ".[docs]"
-	uv run mkdocs serve -a localhost:8001
+docs-serve: venv ## Serve documentation locally
+	$(require_venv)
+	$(PIP) install -e ".[docs]"
+	$(PYTHON) -m mkdocs serve -a localhost:8001
 
 .PHONY: run-example
-run-example: ## Run example migration (requires config)
+run-example: venv ## Run example migration (requires config)
+	$(require_venv)
 	$(PYTHON) -m aap_migration.cli migrate full --config config/config.yaml --dry-run
 
 init-env: ## Initialize .env file from .env.example
 	@if [ ! -f .env ]; then \
-		db_password="$$( $(PYTHON) -c 'import secrets; print(secrets.token_hex(16))' )"; \
+		db_password="$$( $(PYTHON3) -c 'import secrets; print(secrets.token_hex(16))' )"; \
 		cp .env.example .env; \
 		{ \
 			echo ""; \
@@ -130,8 +180,9 @@ init-env: ## Initialize .env file from .env.example
 
 setup: install-dev install-editable init-env ## Complete development setup
 
-version: ## Show current version
-	@$(PYTHON) -c "from importlib.metadata import version; print(f'AAP Bridge v{version(\"aap-bridge\")}')" 2>/dev/null || echo "Package not installed"
+version: venv ## Show current version
+	$(require_venv)
+	@$(PYTHON) -c 'from importlib.metadata import version; print(f"AAP Bridge v{version(\"aap-bridge\")}")' 2>/dev/null || echo "Package not installed"
 
 all: check docs ## Run all checks and build docs
 

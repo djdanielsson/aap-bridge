@@ -18,6 +18,14 @@ The containerized workflow is optional. The original local host setup remains fu
   all resources being migrated); read/write scope with admin-level access for
   the target AAP
 
+### Software
+
+| Package | Used by | Notes |
+| --- | --- | --- |
+| **make** | Both workflows | Convenience wrapper for setup, testing, and container commands |
+| **uv** or **pip** | Local host install | `make setup` uses **uv** when installed, otherwise **stdlib venv + pip** |
+| **podman-compose** | Container CLI | Provides `podman compose` for the bundled PostgreSQL + bridge stack |
+
 ### Hardware Requirements
 
 | Migration Size | RAM | Notes |
@@ -32,23 +40,36 @@ Run AAP Bridge directly on the host with your own Python environment and Postgre
 
 ### Requirements
 
-- **Python 3.12** or higher
+- **Python 3.12** (required; the pip fallback uses `python3.12` when present)
 - **PostgreSQL** database for state management
-- **uv** package manager (recommended) or pip
+- **uv** (recommended) or **pip** for installing Python dependencies
 - Network access to source and target AAP instances
 
+On systems where `python3` is newer than 3.12 (for example 3.13 or 3.14), install the
+`python3.12` package before using the pip path. **uv** handles this automatically.
+
 ### Setup
+
+`make setup` creates `.venv`, installs dependencies, installs the CLI in editable mode,
+and seeds `.env`. It uses **uv** automatically when available; otherwise it falls back
+to the standard library `venv` module and `pip`.
 
 ```bash
 git clone https://github.com/redhat-cop/aap-bridge.git
 cd aap-bridge
 
-# Create the virtual environment, install dependencies, and seed .env
+# Create .venv, install dependencies, install the CLI, and seed .env
 make setup
 
-# Activate the environment for CLI usage
+# Force the pip-based path even when uv is installed
+# make setup USE_UV=0
+
+# Activate the environment for interactive CLI usage
 source .venv/bin/activate
 ```
+
+All other `make` targets (`test`, `lint`, `docs-serve`, etc.) run tools from
+`.venv/bin` and do not require activation.
 
 ### Database Setup
 
@@ -65,12 +86,9 @@ psql -d aap_migration -c "GRANT ALL ON SCHEMA public TO aap_migration_user;"
 
 ### Configure `.env`
 
+`make setup` creates `.env` from `.env.example` if one does not already exist.
 The local and containerized workflows share the same `.env` file and `config/config.yaml`.
-Start from the example and fill in your AAP details:
-
-```bash
-make init-env
-```
+Edit `.env` and fill in your AAP details.
 
 At minimum, set:
 
@@ -92,8 +110,7 @@ This mode keeps the same host-side `.env` and config files, but you do not need 
 
 ### Requirements
 
-- **podman** with compose support
-- **make** (optional convenience wrapper)
+- **podman** with compose support (see [Software](#software) prerequisites)
 - Access to `registry.redhat.io` to pull the Red Hat PostgreSQL image
 
 ### Setup
@@ -148,7 +165,8 @@ aap-bridge --help
 
 | Command | Description |
 | --- | --- |
-| `make setup` | Complete local host setup |
+| `make setup` | Complete local host setup (auto-detects uv or pip) |
+| `make setup USE_UV=0` | Local host setup using stdlib venv + pip |
 | `make build` | Build the container images used by the CLI workflow |
 | `make up-dev` | Start the PostgreSQL + bridge containers |
 | `make shell` | Open a shell in the running bridge container |
