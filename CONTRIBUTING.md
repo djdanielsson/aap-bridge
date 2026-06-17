@@ -41,20 +41,13 @@ report, reproduce the behavior, and find related reports.
 
 ## Development Setup
 
-1. **Create a virtual environment:**
+`make setup` creates `.venv` and installs dev dependencies. It uses **uv** when
+available, otherwise **stdlib venv + pip**. Pass `USE_UV=0` to force the pip path.
 
-    ```bash
-    uv venv --seed --python 3.12
-    source .venv/bin/activate
-
-    ```text
-
-2. **Install dependencies:**
-
-    ```bash
-    make install-dev
-
-    ```
+```bash
+make setup
+source .venv/bin/activate  # only needed for interactive aap-bridge usage
+```
 
 ## Styleguides
 

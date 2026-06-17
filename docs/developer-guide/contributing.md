@@ -50,23 +50,24 @@ Open an issue with:
 
 ### Prerequisites
 
-- Python 3.12+
-- uv package manager
+- Python 3.12 (required)
+- **uv** (recommended) or **pip** with the stdlib `venv` module (`python3.12-venv` on Debian/Ubuntu)
 - PostgreSQL (for integration tests)
 
 ### Setup
+
+`make setup` creates `.venv`, installs dev dependencies, and seeds `.env`.
+It prefers **uv** when installed; pass `USE_UV=0` to use **pip** instead.
 
 ```bash
 # Clone your fork
 git clone https://github.com/YOUR_USERNAME/aap-bridge.git
 cd aap-bridge
 
-# Create virtual environment
-uv venv --seed --python 3.12
-source .venv/bin/activate
-
-# Install with dev dependencies
 make setup
+
+# Interactive CLI usage only — make test/lint/etc. use .venv/bin directly
+source .venv/bin/activate
 
 ```
 
@@ -83,7 +84,7 @@ make test-unit
 make test-cov
 
 # Specific test file
-uv run pytest tests/unit/test_exporter.py -v
+.venv/bin/pytest tests/unit/test_exporter.py -v
 
 ```
 
