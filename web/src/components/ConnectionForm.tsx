@@ -14,13 +14,9 @@ import {
   Checkbox,
   Button,
 } from '@patternfly/react-core';
-import type { Connection } from '../types/connection';
+import type { Connection, ConnectionPayload } from '../types/connection';
 
 const MASKED_TOKEN = '********';
-
-type ConnectionPayload = Omit<Connection, 'id' | 'token' | 'type'> & {
-  token?: string;
-};
 
 interface Props {
   isOpen: boolean;

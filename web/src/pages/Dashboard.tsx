@@ -22,7 +22,7 @@ import {
 import { Dropdown, DropdownItem, KebabToggle } from '@patternfly/react-core/deprecated';
 import { api } from '../api/client';
 import { ConnectionForm } from '../components/ConnectionForm';
-import type { Connection } from '../types/connection';
+import type { Connection, ConnectionPayload } from '../types/connection';
 
 export function Dashboard() {
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -39,9 +39,7 @@ export function Dashboard() {
 
   useEffect(() => { loadConnections(); }, [loadConnections]);
 
-  const handleSave = async (
-    conn: Omit<Connection, 'id' | 'token'> & { token?: string }
-  ) => {
+  const handleSave = async (conn: ConnectionPayload) => {
     if (editConn) {
       await api.updateConnection(editConn.id, conn);
     } else {

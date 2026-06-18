@@ -15,6 +15,11 @@ export interface Connection {
   last_checked?: string;
 }
 
+/** Payload for create/update; type is assigned server-side (AAP-only). */
+export type ConnectionPayload = Omit<Connection, 'id' | 'token' | 'type'> & {
+  token?: string;
+};
+
 export interface TestResult {
   ok: boolean;
   error?: string;
