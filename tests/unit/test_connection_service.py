@@ -11,7 +11,7 @@ from aap_migration.api.services.connection_service import (
     normalize_connection_url,
     split_connection_url,
 )
-from aap_migration.api.services.engine_adapter import connection_to_aap_config
+from aap_migration.api.services.engine_adapter import connection_to_aap_config, load_runtime_config
 from aap_migration.api.services.platform_adapter import PlatformAdapter
 from aap_migration.api.services.token_crypto import (
     ENCRYPTED_TOKEN_PREFIX,
@@ -249,6 +249,58 @@ def test_engine_adapter_decrypts_encrypted_token(monkeypatch: pytest.MonkeyPatch
     assert config.url == "https://localhost:20947"
     assert config.version == "2.6"
     assert config.token == "token"
+
+
+def test_load_runtime_config_builds_from_connections_without_env_injection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path,
+):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+source:
+  url: ${SOURCE__URL}
+  token: ${SOURCE__TOKEN}
+  version: ${SOURCE__VERSION}
+target:
+  url: ${TARGET__URL}
+  token: ${TARGET__TOKEN}
+  version: ${TARGET__VERSION}
+export:
+  skip_credential_names:
+    - demo
+""".strip()
+    )
+    monkeypatch.setenv("AAP_BRIDGE_CONFIG", str(config_file))
+    monkeypatch.delenv("SOURCE__URL", raising=False)
+    monkeypatch.delenv("SOURCE__TOKEN", raising=False)
+    monkeypatch.delenv("SOURCE__VERSION", raising=False)
+
+    source = Connection(
+        name="source",
+        type="aap",
+        role="source",
+        url="https://aap25.example.com",
+        token="source-token",
+        verify_ssl=False,
+        version="2.5",
+    )
+    target = Connection(
+        name="target",
+        type="aap",
+        role="destination",
+        url="https://aap26.example.com",
+        token="target-token",
+        verify_ssl=False,
+        version="2.6",
+    )
+
+    config = load_runtime_config(source, target, "sqlite:///test.db")
+
+    assert config.source.url == "https://aap25.example.com"
+    assert config.source.version == "2.5"
+    assert config.target.version == "2.6"
+    assert config.export.skip_credential_names == ["demo"]
+    assert config.state.db_path == "sqlite:///test.db"
 
 
 def test_platform_adapter_decrypts_encrypted_token(monkeypatch: pytest.MonkeyPatch):

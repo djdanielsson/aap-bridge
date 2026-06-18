@@ -7,6 +7,7 @@ from aap_migration.config import (
     AAPInstanceConfig,
     MigrationConfig,
     VaultConfig,
+    load_config_tuning_from_yaml,
     normalize_aap_version,
 )
 
@@ -219,3 +220,33 @@ class TestVaultConfig:
         )
 
         assert config.path_prefix == "secret/aap"
+
+
+def test_load_config_tuning_from_yaml_omits_instances(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+source:
+  url: ${SOURCE__URL}
+  token: ${SOURCE__TOKEN}
+  version: ${SOURCE__VERSION}
+target:
+  url: ${TARGET__URL}
+  token: ${TARGET__TOKEN}
+  version: ${TARGET__VERSION}
+paths:
+  base_dir: .
+  export_dir: exports
+export:
+  skip_credential_names:
+    - demo
+""".strip()
+    )
+
+    tuning = load_config_tuning_from_yaml(config_file)
+
+    assert "source" not in tuning
+    assert "target" not in tuning
+    assert tuning["paths"]["export_dir"] == "exports"
+    assert tuning["export"]["skip_credential_names"] == ["demo"]
+

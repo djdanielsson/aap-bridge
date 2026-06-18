@@ -911,6 +911,45 @@ def load_config_from_yaml(config_path: str | Path) -> MigrationConfig:
     return MigrationConfig(**config_data)
 
 
+def load_config_tuning_from_yaml(config_path: str | Path) -> dict:
+    """Load non-instance settings from a YAML configuration file.
+
+    Source and target blocks are removed so callers can supply instance
+    credentials from saved web connections or other runtime sources.
+
+    Args:
+        config_path: Path to YAML configuration file
+
+    Returns:
+        dict: Tuning settings suitable for ``MigrationConfig(**tuning)``
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        ValueError: If config file is invalid
+    """
+    config_path = Path(config_path)
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
+    with open(config_path) as f:
+        config_data = yaml.safe_load(f)
+
+    if not config_data:
+        raise ValueError(f"Empty configuration file: {config_path}")
+
+    config_data = _expand_env_vars(config_data)
+    config_data = _prune_unconfigured_sections(config_data)
+    config_data = _unwrap_env_results(config_data)
+
+    if isinstance(config_data, dict):
+        config_data.pop("source", None)
+        config_data.pop("target", None)
+        return config_data
+
+    raise ValueError(f"Invalid configuration file: {config_path}")
+
+
 class _EnvVarResult:
     """Wraps the outcome of a ${VAR} expansion so pruning can distinguish
     env-var-sourced values (resolved or missing) from YAML literals."""
