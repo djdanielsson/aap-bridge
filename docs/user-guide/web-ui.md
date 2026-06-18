@@ -9,7 +9,8 @@ real-time log streaming.
 ### Container Deployment (Recommended)
 
 ```bash
-# Build and start all 3 containers
+# Create .env, then build and start all 3 containers
+make init-env
 make build-all
 make up
 
@@ -30,13 +31,8 @@ For frontend development with hot-reload:
 
 ```bash
 # Terminal 1: Start the API server
+make init-env   # Or reuse an existing .env from make setup
 pip install -e '.[api]'
-export MIGRATION_STATE_DB_PATH=postgresql://user:pass@localhost:5432/aap_migration
-export AAP_BRIDGE_TOKEN_ENCRYPTION_KEY="$(python - <<'PY'
-from cryptography.fernet import Fernet
-print(Fernet.generate_key().decode())
-PY
-)"
 aap-bridge serve --reload
 
 # Terminal 2: Start the Vite dev server

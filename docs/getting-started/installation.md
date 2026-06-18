@@ -142,7 +142,7 @@ make shell
 - The compose stack now prepares its own writable volumes, so `podman compose up -d db bridge` works without any Makefile ownership helpers.
 - `make up-dev` is a thin wrapper around the same compose workflow if you prefer the shortcut.
 - The bridge container stores logs, exports, and reports in compose-managed volumes mounted under `/app`.
-- The container workflow is intended for the CLI/TUI path only; the browser workflow uses the dedicated engine and UI services described below.
+- The container workflow is intended for the CLI/TUI path; the browser workflow uses the same `.env` from `make init-env` with the dedicated engine and UI services described below.
 
 ## Web UI
 
