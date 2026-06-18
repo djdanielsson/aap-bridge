@@ -8,6 +8,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session, sessionmaker
 
 from aap_migration.api.models import Connection, Job
+from aap_migration.api.services.cli_workflows import run_connection_cleanup, run_connection_export
 from aap_migration.api.services.job_service import JobService
 
 ACTIVE_JOB_ID: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -101,10 +102,17 @@ class OperationService:
             "token": conn.token,
             "verify_ssl": conn.verify_ssl,
             "type": conn.type,
+            "role": conn.role,
             "api_prefix": conn.api_prefix,
             "version": conn.version,
             "ping_status": conn.ping_status,
         }
+
+    def _connection_from_snapshot(self, snap: dict) -> Connection:
+        conn_model = Connection()
+        for key, value in snap.items():
+            setattr(conn_model, key, value)
+        return conn_model
 
     def start_cleanup(self, conn: Connection) -> str:
         job_id = self._create_job("cleanup", conn.id)
@@ -115,78 +123,22 @@ class OperationService:
             handler = self._attach_log_handler(job_id)
             context_token = ACTIVE_JOB_ID.set(job_id)
             try:
-                from aap_migration.api.services.engine_adapter import (
-                    connection_to_aap_config,
-                    load_runtime_config,
-                )
-                from aap_migration.cli.commands.cleanup import cancel_all_jobs, delete_resources
-                from aap_migration.client.aap_target_client import AAPTargetClient
-
+                conn_model = self._connection_from_snapshot(snap)
                 self.job_service.append_log(
                     job_id, f"Starting cleanup on {snap['name']} ({snap['url']})"
                 )
-
-                conn_model = Connection()
-                for k, v in snap.items():
-                    setattr(conn_model, k, v)
-
-                aap_config = connection_to_aap_config(conn_model)
-                target_client = AAPTargetClient(aap_config)
-                config = load_runtime_config(conn_model, conn_model, db_url)
-
-                self.job_service.append_log(job_id, "Cancelling active jobs...")
-                try:
-                    result = await cancel_all_jobs(client=target_client, config=config)
-                    self.job_service.append_log(job_id, f"Cancelled jobs: {result}")
-                except Exception as e:
-                    self.job_service.append_log(job_id, f"Warning: cancel_all_jobs: {e}")
-
-                cleanup_types = [
-                    "schedules",
-                    "workflow_job_templates",
-                    "job_templates",
-                    "inventory_sources",
-                    "hosts",
-                    "groups",
-                    "inventory",
-                    "projects",
-                    "credentials",
-                    "credential_types",
-                    "execution_environments",
-                    "teams",
-                    "users",
-                    "organizations",
-                ]
-
-                total_deleted = 0
-                total_skipped = 0
-                total_errors = 0
-
-                for rt in cleanup_types:
-                    self.job_service.append_log(job_id, f"Cleaning up {rt}...")
-                    try:
-                        deleted, skipped, errors, failed = await delete_resources(
-                            client=target_client,
-                            resource_type=rt,
-                            config=config,
-                            skip_default=True,
-                        )
-                        total_deleted += deleted
-                        total_skipped += skipped
-                        total_errors += errors
-                        self.job_service.append_log(
-                            job_id, f"  {rt}: deleted={deleted} skipped={skipped} errors={errors}"
-                        )
-                    except Exception as e:
-                        self.job_service.append_log(job_id, f"  {rt}: error - {e}")
-                        total_errors += 1
-
+                result = await run_connection_cleanup(
+                    conn_model,
+                    db_url,
+                    log=lambda message: self.job_service.append_log(job_id, message),
+                )
                 self.job_service.append_log(
                     job_id,
-                    f"Cleanup complete: deleted={total_deleted} skipped={total_skipped} errors={total_errors}",
+                    "Cleanup complete: "
+                    f"deleted={result.deleted} skipped={result.skipped} errors={result.errors}",
                 )
-                if total_errors:
-                    error_msg = f"Cleanup completed with {total_errors} errors"
+                if result.errors:
+                    error_msg = f"Cleanup completed with {result.errors} errors"
                     self.job_service.append_log(job_id, error_msg)
                     self.job_service.mark_failed(job_id, error_msg)
                     self._finish_job(job_id, "failed", error_msg)
@@ -217,69 +169,31 @@ class OperationService:
             handler = self._attach_log_handler(job_id)
             context_token = ACTIVE_JOB_ID.set(job_id)
             try:
-                import json
                 from pathlib import Path
 
-                from aap_migration.api.services.connection_client import fetch_connection_resources
-
+                conn_model = self._connection_from_snapshot(snap)
                 self.job_service.append_log(
                     job_id, f"Starting export from {snap['name']} ({snap['url']})"
                 )
-
-                conn_model = Connection()
-                for k, v in snap.items():
-                    setattr(conn_model, k, v)
 
                 safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", snap["name"]).strip("._")
                 if not safe_name:
                     safe_name = snap["id"]
                 export_dir = Path("./exports") / f"{safe_name}-{snap['id'][:8]}-{job_id[:8]}"
-                export_dir.mkdir(parents=True, exist_ok=True)
 
-                export_types = [
-                    "organizations",
-                    "teams",
-                    "users",
-                    "credential_types",
-                    "credentials",
-                    "projects",
-                    "inventories",
-                    "inventory_sources",
-                    "hosts",
-                    "groups",
-                    "job_templates",
-                    "workflow_job_templates",
-                    "schedules",
-                    "notification_templates",
-                    "labels",
-                    "execution_environments",
-                ]
-
-                total_exported = 0
-                total_errors = 0
-                for rt in export_types:
-                    self.job_service.append_log(job_id, f"Exporting {rt}...")
-                    try:
-                        items = await fetch_connection_resources(conn_model, rt)
-                        if items:
-                            rt_dir = export_dir / rt
-                            rt_dir.mkdir(parents=True, exist_ok=True)
-                            outfile = rt_dir / f"{rt}_001.json"
-                            with open(outfile, "w") as f:
-                                json.dump(items, f, indent=2, default=str)
-                            total_exported += len(items)
-                            self.job_service.append_log(job_id, f"  Exported {len(items)} {rt}")
-                        else:
-                            self.job_service.append_log(job_id, f"  No {rt} found")
-                    except Exception as e:
-                        self.job_service.append_log(job_id, f"  Error exporting {rt}: {e}")
-                        total_errors += 1
-
-                self.job_service.append_log(
-                    job_id, f"Export complete: {total_exported} resources to {export_dir}"
+                result = await run_connection_export(
+                    conn_model,
+                    self._get_db_url(),
+                    export_dir,
+                    log=lambda message: self.job_service.append_log(job_id, message),
                 )
-                if total_errors:
-                    error_msg = f"Export completed with {total_errors} resource-type errors"
+                self.job_service.append_log(
+                    job_id,
+                    f"Export complete: {result.total_resources} resources "
+                    f"across {result.resource_types} types in {result.output_dir}",
+                )
+                if result.errors:
+                    error_msg = f"Export completed with {result.errors} resource-type errors"
                     self.job_service.append_log(job_id, error_msg)
                     self.job_service.mark_failed(job_id, error_msg)
                     self._finish_job(job_id, "failed", error_msg)
