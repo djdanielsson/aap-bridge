@@ -14,9 +14,9 @@ from aap_migration.client.api_layout import (
 @pytest.mark.parametrize(
     ("conn_kwargs", "expected_version"),
     [
-        ({"type": "awx", "role": "source", "version": "2.3.5"}, "2.3"),
+        ({"type": "aap", "role": "source", "version": "2.3.5"}, "2.3"),
         ({"type": "aap", "role": "destination", "version": "2.6.1"}, "2.6"),
-        ({"type": "awx", "role": "source", "api_prefix": "/api/v2"}, "2.4"),
+        ({"type": "aap", "role": "source", "api_prefix": "/api/v2"}, "2.4"),
         (
             {"type": "aap", "role": "destination", "api_prefix": CONTROLLER_API_PREFIX},
             "2.6",

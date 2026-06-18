@@ -23,11 +23,7 @@ from aap_migration.api.services.token_crypto import decrypt_token, encrypt_token
 from aap_migration.client.api_layout import parse_aap_major_minor
 
 MASKED_TOKEN = "********"
-
-
-def validate_connection_type_role(connection_type: str, role: str) -> None:
-    if connection_type == "awx" and role != "source":
-        raise ValueError("AWX connections can only use the source role")
+CONNECTION_TYPE_AAP = "aap"
 
 
 class ConnectionService:
@@ -36,10 +32,9 @@ class ConnectionService:
 
     def create(self, data: ConnectionCreate) -> Connection:
         normalized_url, api_prefix = split_connection_url(data.url)
-        validate_connection_type_role(data.type, data.role)
         conn = Connection(
             name=data.name,
-            type=data.type,
+            type=CONNECTION_TYPE_AAP,
             role=data.role,
             url=normalized_url,
             token=encrypt_token(data.token),
@@ -70,18 +65,11 @@ class ConnectionService:
             update_data.pop("token", None)
         elif "token" in update_data:
             update_data["token"] = encrypt_token(update_data["token"])
-        next_type = update_data.get("type", conn.type)
-        next_role = update_data.get("role", conn.role)
-        validate_connection_type_role(next_type, next_role)
-
         discovery_needs_reset = False
         if "url" in update_data and update_data["url"]:
             normalized_url, api_prefix = split_connection_url(update_data["url"])
             update_data["url"] = normalized_url
             update_data["api_prefix"] = api_prefix
-            discovery_needs_reset = True
-        elif "type" in update_data:
-            update_data["api_prefix"] = None
             discovery_needs_reset = True
 
         if discovery_needs_reset:

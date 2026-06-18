@@ -18,7 +18,7 @@ import type { Connection } from '../types/connection';
 
 const MASKED_TOKEN = '********';
 
-type ConnectionPayload = Omit<Connection, 'id' | 'token'> & {
+type ConnectionPayload = Omit<Connection, 'id' | 'token' | 'type'> & {
   token?: string;
 };
 
@@ -31,7 +31,6 @@ interface Props {
 
 export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
   const [name, setName] = useState(initial?.name || '');
-  const [type, setType] = useState<'awx' | 'aap'>(initial?.type || 'awx');
   const [role, setRole] = useState<'source' | 'destination'>(initial?.role || 'source');
   const [url, setUrl] = useState(initial?.url || '');
   const [token, setToken] = useState('');
@@ -40,7 +39,7 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
   const [saveError, setSaveError] = useState('');
 
   const handleSubmit = async () => {
-    const payload: ConnectionPayload = { name, type, role, url, verify_ssl: verifySsl };
+    const payload: ConnectionPayload = { name, role, url, verify_ssl: verifySsl };
     const trimmedToken = token.trim();
     if (!initial?.id || (trimmedToken && trimmedToken !== MASKED_TOKEN)) {
       payload.token = trimmedToken;
@@ -74,31 +73,15 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
         <FormGroup label="Name" isRequired fieldId="name">
           <TextInput id="name" value={name} onChange={(_e, v) => setName(v)} placeholder="My AAP Instance" />
         </FormGroup>
-        <FormGroup label="Type" fieldId="type">
-          <FormSelect id="type" value={type} onChange={(_e, v) => {
-            const t = v as 'awx' | 'aap';
-            setType(t);
-            if (t === 'aap') {
-              setRole('destination');
-            } else {
-              setRole('source');
-            }
-          }}>
-            <FormSelectOption value="awx" label="AWX" />
-            <FormSelectOption value="aap" label="AAP" />
-          </FormSelect>
-        </FormGroup>
         <FormGroup label="Role" fieldId="role">
-          <FormSelect id="role" value={role} onChange={(_e, v) => setRole(v as 'source' | 'destination')}
-            isDisabled={type === 'awx'}
-          >
+          <FormSelect id="role" value={role} onChange={(_e, v) => setRole(v as 'source' | 'destination')}>
             <FormSelectOption value="source" label="Source (migrate FROM)" />
             <FormSelectOption value="destination" label="Destination (migrate TO)" />
           </FormSelect>
           <FormHelperText>
             <HelperText>
               <HelperTextItem>
-                {type === 'awx' ? 'AWX instances are always sources' : 'AAP can be source (older) or destination (2.5+)'}
+                Source is the older AAP instance; destination is typically AAP 2.5+.
               </HelperTextItem>
             </HelperText>
           </FormHelperText>

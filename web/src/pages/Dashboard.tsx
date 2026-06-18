@@ -127,8 +127,8 @@ export function Dashboard() {
             <Split hasGutter>
               <SplitItem>{conn.name}</SplitItem>
               <SplitItem>
-                <Label color={conn.type === 'awx' ? 'blue' : 'purple'}>
-                  {conn.type.toUpperCase()}{conn.version ? ` v${conn.version}` : ''}
+                <Label color="blue">
+                  {conn.role === 'source' ? 'Source' : 'Destination'}{conn.version ? ` v${conn.version}` : ''}
                 </Label>
               </SplitItem>
               <SplitItem>{pingLabel(conn)}</SplitItem>
@@ -177,7 +177,7 @@ export function Dashboard() {
     <>
       <Title headingLevel="h1" size="2xl">Connections</Title>
       <TextContent style={{ marginBottom: 16 }}>
-        <Text>Manage your AWX and AAP connections.</Text>
+        <Text>Manage your AAP instance connections.</Text>
       </TextContent>
       <Button variant="primary" onClick={() => { setEditConn(null); setShowForm(true); }} style={{ marginBottom: 16 }}>
         Add Connection

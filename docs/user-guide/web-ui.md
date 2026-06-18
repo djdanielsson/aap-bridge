@@ -50,10 +50,9 @@ make web-dev
 
 ### Connections
 
-Manage AWX and AAP instance connections. Each connection stores:
+Manage AAP instance connections. Each connection stores:
 
 - **Name** - Friendly label
-- **Type** - AWX or AAP
 - **Role** - Source (migrate from) or Destination (migrate to)
 - **URL** - Full instance URL (e.g., `https://aap.example.com`)
 - **Token** - API authentication token
@@ -93,7 +92,7 @@ Three-step migration wizard:
 ### Object Browser
 
 Browse any resource type (organizations, credentials, job templates, etc.) on
-any connected AAP/AWX instance. Supports search filtering and shows up to 8
+any connected AAP instance. Supports search filtering and shows up to 8
 columns per resource type.
 
 ### Jobs

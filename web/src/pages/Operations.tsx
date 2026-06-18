@@ -102,8 +102,8 @@ export function Operations() {
                   <Split hasGutter>
                     <SplitItem>{conn.name}</SplitItem>
                     <SplitItem>
-                      <Label color={conn.type === 'awx' ? 'blue' : 'purple'} isCompact>
-                        {conn.type.toUpperCase()}
+                      <Label color="blue" isCompact>
+                        {conn.version ? `v${conn.version}` : 'AAP'}
                       </Label>
                     </SplitItem>
                   </Split>
@@ -127,8 +127,8 @@ export function Operations() {
                   <Split hasGutter>
                     <SplitItem>{conn.name}</SplitItem>
                     <SplitItem>
-                      <Label color={conn.type === 'awx' ? 'blue' : 'purple'} isCompact>
-                        {conn.type.toUpperCase()}
+                      <Label color="blue" isCompact>
+                        {conn.version ? `v${conn.version}` : 'AAP'}
                       </Label>
                     </SplitItem>
                   </Split>
@@ -177,7 +177,7 @@ export function Operations() {
               <Split hasGutter>
                 <SplitItem>{selected.name}</SplitItem>
                 <SplitItem>
-                  <Label color={selected.type === 'awx' ? 'blue' : 'purple'}>{selected.type.toUpperCase()}</Label>
+                  <Label color="blue">{selected.version ? `v${selected.version}` : 'AAP'}</Label>
                 </SplitItem>
                 <SplitItem>
                   <Label isCompact>{selected.url}</Label>

@@ -40,11 +40,9 @@ def resolve_connection_version(conn: Connection) -> str:
         except ValueError:
             return conn.version
 
-    if conn.api_prefix == LEGACY_API_PREFIX or conn.type == "awx":
+    if conn.api_prefix == LEGACY_API_PREFIX:
         return "2.4"
     if conn.api_prefix in (CONTROLLER_API_PREFIX, GATEWAY_API_PREFIX):
-        return "2.6"
-    if conn.type == "aap":
         return "2.6"
     return "2.4"
 
@@ -57,9 +55,6 @@ def build_connection_layout(conn: Connection) -> ApiLayout:
 def ping_probe_candidates(conn: Connection) -> list[tuple[str, str]]:
     """Return (ping_url, api_prefix) pairs to try when testing a connection."""
     host = normalize_host_url(conn.url)
-    if conn.type == "awx":
-        return [(f"{join_api_base(host, LEGACY_API_PREFIX)}/ping/", LEGACY_API_PREFIX)]
-
     return [
         (f"{join_api_base(host, CONTROLLER_API_PREFIX)}/ping/", CONTROLLER_API_PREFIX),
         (f"{join_api_base(host, LEGACY_API_PREFIX)}/ping/", LEGACY_API_PREFIX),

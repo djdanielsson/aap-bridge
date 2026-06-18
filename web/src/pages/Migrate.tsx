@@ -173,7 +173,7 @@ export function Migrate() {
     <>
       <Title headingLevel="h1" size="2xl">Migrate</Title>
       <TextContent style={{ marginBottom: 16 }}>
-        <Text>Migrate resources from a source AWX/AAP platform to a destination AAP platform.</Text>
+        <Text>Migrate resources from a source AAP instance to a destination AAP instance.</Text>
       </TextContent>
 
       {connections.length < 2 && (

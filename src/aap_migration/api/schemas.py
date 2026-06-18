@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 def _validate_connection_url(url: str) -> str:
@@ -15,7 +15,6 @@ def _validate_connection_url(url: str) -> str:
 
 class ConnectionCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
-    type: Literal["awx", "aap"]
     role: Literal["source", "destination"]
     url: str = Field(..., min_length=1, max_length=512)
     token: str | None = None
@@ -26,16 +25,9 @@ class ConnectionCreate(BaseModel):
     def validate_url(cls, value: str) -> str:
         return _validate_connection_url(value)
 
-    @model_validator(mode="after")
-    def validate_type_role(self) -> "ConnectionCreate":
-        if self.type == "awx" and self.role != "source":
-            raise ValueError("AWX connections can only use the source role")
-        return self
-
 
 class ConnectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    type: Literal["awx", "aap"] | None = None
     role: Literal["source", "destination"] | None = None
     url: str | None = Field(default=None, min_length=1, max_length=512)
     token: str | None = None
@@ -47,13 +39,6 @@ class ConnectionUpdate(BaseModel):
         if value is None:
             return None
         return _validate_connection_url(value)
-
-    @model_validator(mode="after")
-    def validate_type_role(self) -> "ConnectionUpdate":
-        if self.type == "awx" and self.role == "destination":
-            raise ValueError("AWX connections can only use the source role")
-        return self
-
 
 class ConnectionResponse(BaseModel):
     id: str

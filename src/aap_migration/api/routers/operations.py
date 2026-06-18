@@ -27,10 +27,10 @@ def run_cleanup(connection_id: str, db: Session = Depends(get_db)) -> JobCreated
     conn = svc.get(connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
-    if conn.role != "destination" or conn.type != "aap":
+    if conn.role != "destination":
         raise HTTPException(
             status_code=400,
-            detail="Cleanup is only supported for AAP destination connections",
+            detail="Cleanup is only supported for destination connections",
         )
     if _has_active_jobs(db, ("migration-run", "cleanup", "export")):
         raise HTTPException(

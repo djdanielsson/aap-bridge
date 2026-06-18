@@ -109,7 +109,6 @@ def test_create_preserves_explicit_api_prefix(db_session, monkeypatch: pytest.Mo
     conn = service.create(
         ConnectionCreate(
             name="AAP gateway",
-            type="aap",
             role="destination",
             url="https://localhost:20947/api/v2",
             token="token",
@@ -128,7 +127,6 @@ def test_create_stores_encrypted_token(db_session, monkeypatch: pytest.MonkeyPat
     conn = service.create(
         ConnectionCreate(
             name="AAP gateway",
-            type="aap",
             role="destination",
             url="https://localhost:20947/api/v2",
             token="token",
@@ -150,7 +148,6 @@ def test_update_clears_stale_discovery_metadata(db_session, monkeypatch: pytest.
     conn = service.create(
         ConnectionCreate(
             name="AAP gateway",
-            type="aap",
             role="destination",
             url="https://localhost:20947/api/controller/v2",
             token="token",
@@ -166,14 +163,13 @@ def test_update_clears_stale_discovery_metadata(db_session, monkeypatch: pytest.
     updated = service.update(
         conn.id,
         ConnectionUpdate(
-            type="awx",
             role="source",
-            url="https://awx.example.com/api/v2",
+            url="https://aap24.example.com/api/v2",
         ),
     )
 
     assert updated is not None
-    assert updated.url == "https://awx.example.com"
+    assert updated.url == "https://aap24.example.com"
     assert updated.api_prefix == "/api/v2"
     assert updated.version is None
     assert updated.ping_status == "unknown"
@@ -187,7 +183,6 @@ def test_update_preserves_masked_token(db_session, monkeypatch: pytest.MonkeyPat
     conn = service.create(
         ConnectionCreate(
             name="AAP gateway",
-            type="aap",
             role="destination",
             url="https://localhost:20947/api/controller/v2",
             token="super-secret-token",
@@ -216,7 +211,6 @@ def test_update_encrypts_replaced_token(db_session, monkeypatch: pytest.MonkeyPa
     conn = service.create(
         ConnectionCreate(
             name="AAP gateway",
-            type="aap",
             role="destination",
             url="https://localhost:20947/api/controller/v2",
             token="old-token",

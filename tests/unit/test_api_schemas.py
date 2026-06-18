@@ -8,9 +8,8 @@ def test_connection_create_requires_https_url():
     with pytest.raises(ValidationError, match="URL should use HTTPS for security"):
         ConnectionCreate(
             name="Source",
-            type="awx",
             role="source",
-            url="http://awx.example.com",
+            url="http://aap.example.com",
             token="token",
         )
 
@@ -26,17 +25,19 @@ def test_connection_update_allows_https_url():
     assert update.url == "https://aap.example.com/api/controller/v2"
 
 
-def test_connection_create_rejects_awx_destination():
-    with pytest.raises(ValidationError, match="AWX connections can only use the source role"):
-        ConnectionCreate(
-            name="AWX dest",
-            type="awx",
-            role="destination",
-            url="https://awx.example.com",
-            token="token",
-        )
+def test_connection_create_accepts_source_or_destination_role():
+    source = ConnectionCreate(
+        name="Source",
+        role="source",
+        url="https://aap.example.com",
+        token="token",
+    )
+    destination = ConnectionCreate(
+        name="Destination",
+        role="destination",
+        url="https://aap26.example.com",
+        token="token",
+    )
 
-
-def test_connection_update_rejects_awx_destination_when_type_and_role_are_set():
-    with pytest.raises(ValidationError, match="AWX connections can only use the source role"):
-        ConnectionUpdate(type="awx", role="destination")
+    assert source.role == "source"
+    assert destination.role == "destination"

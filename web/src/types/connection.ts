@@ -1,7 +1,7 @@
 export interface Connection {
   id: string;
   name: string;
-  type: 'awx' | 'aap';
+  type: 'aap';
   role: 'source' | 'destination';
   url: string;
   token: string;
