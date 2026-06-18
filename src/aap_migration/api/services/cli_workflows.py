@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from aap_migration.api.models import Connection
 from aap_migration.api.services.engine_adapter import load_runtime_config
 from aap_migration.cli.commands.cleanup import (
     cancel_all_jobs,
+    clear_database,
     delete_resources,
     get_cleanup_resource_types,
 )
@@ -60,6 +62,30 @@ class CleanupWorkflowResult:
     deleted: int
     skipped: int
     errors: int
+    cleared_progress: int = 0
+    deleted_mappings: int = 0
+    directories_removed: list[str] = field(default_factory=list)
+
+
+def _clean_workflow_directories(ctx: MigrationContext, log: LogFn | None = None) -> list[str]:
+    """Remove local export and transform directories, matching CLI cleanup."""
+    directories = {
+        "exports": Path(ctx.config.paths.export_dir),
+        "xformed": Path(ctx.config.paths.transform_dir),
+    }
+    removed: list[str] = []
+    for label, path in directories.items():
+        if not path.exists() or not path.is_dir():
+            continue
+        try:
+            shutil.rmtree(path)
+            removed.append(label)
+            if log:
+                log(f"Removed {label} directory: {path}")
+        except OSError as exc:
+            if log:
+                log(f"Failed to remove {label} directory {path}: {exc}")
+    return removed
 
 
 async def run_connection_export(
@@ -148,11 +174,10 @@ async def run_connection_cleanup(
     *,
     log: LogFn | None = None,
 ) -> CleanupWorkflowResult:
-    """Delete non-default resources from a destination connection.
+    """Run CLI-equivalent cleanup for a destination connection.
 
-    Uses the same discovery, job cancellation, and deletion helpers as the CLI
-    cleanup command, but does not clear migration database state or local export
-    directories.
+    Saved web connections are not modified. Migration progress tables and local
+    export/transform directories are cleared so the next run starts fresh.
     """
     ctx = build_migration_context(conn, db_url)
     target_client = AAPTargetClient(
@@ -163,8 +188,20 @@ async def run_connection_cleanup(
     total_deleted = 0
     total_skipped = 0
     total_errors = 0
+    cleared_progress = 0
+    deleted_mappings = 0
+    directories_removed: list[str] = []
 
     try:
+        if log:
+            log("Clearing migration state database tables...")
+        cleared_progress, deleted_mappings = clear_database(str(ctx.config.state.db_path))
+        if log:
+            log(
+                "Database cleared: "
+                f"{cleared_progress} progress records, {deleted_mappings} id mappings"
+            )
+
         if log:
             log("Cancelling active jobs...")
         cancel_result = await cancel_all_jobs(client=target_client, config=ctx.config)
@@ -173,7 +210,7 @@ async def run_connection_cleanup(
 
         resource_types = await get_cleanup_resource_types(target_client, use_discovered=True)
         if log:
-            log(f"Cleaning up {len(resource_types)} resource types...")
+            log(f"Cleaning up {len(resource_types)} resource types on target...")
 
         for resource_type in resource_types:
             if log:
@@ -195,10 +232,15 @@ async def run_connection_cleanup(
                 if log:
                     log(f"  {resource_type}: error - {exc}")
 
+        directories_removed = _clean_workflow_directories(ctx, log=log)
+
         return CleanupWorkflowResult(
             deleted=total_deleted,
             skipped=total_skipped,
             errors=total_errors,
+            cleared_progress=cleared_progress,
+            deleted_mappings=deleted_mappings,
+            directories_removed=directories_removed,
         )
     finally:
         await target_client.close()

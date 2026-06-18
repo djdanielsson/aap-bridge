@@ -66,10 +66,15 @@ async def test_run_connection_export_uses_parallel_export_coordinator(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_run_connection_cleanup_uses_cli_cleanup_helpers() -> None:
+async def test_run_connection_cleanup_uses_cli_cleanup_helpers(tmp_path: Path) -> None:
     conn = _connection(role="destination")
     mock_ctx = MagicMock()
     mock_ctx.config.performance.rate_limit = 20
+    mock_ctx.config.state.db_path = "sqlite:///test.db"
+    mock_ctx.config.paths.export_dir = str(tmp_path / "exports")
+    mock_ctx.config.paths.transform_dir = str(tmp_path / "xformed")
+    (tmp_path / "exports").mkdir()
+    (tmp_path / "xformed").mkdir()
     mock_client = AsyncMock()
     mock_client.close = AsyncMock()
 
@@ -81,6 +86,10 @@ async def test_run_connection_cleanup_uses_cli_cleanup_helpers() -> None:
         patch(
             "aap_migration.api.services.cli_workflows.AAPTargetClient",
             return_value=mock_client,
+        ),
+        patch(
+            "aap_migration.api.services.cli_workflows.clear_database",
+            return_value=(12, 34),
         ),
         patch(
             "aap_migration.api.services.cli_workflows.cancel_all_jobs",
@@ -106,4 +115,9 @@ async def test_run_connection_cleanup_uses_cli_cleanup_helpers() -> None:
     assert result.deleted == 5
     assert result.skipped == 1
     assert result.errors == 1
+    assert result.cleared_progress == 12
+    assert result.deleted_mappings == 34
+    assert set(result.directories_removed) == {"exports", "xformed"}
+    assert not (tmp_path / "exports").exists()
+    assert not (tmp_path / "xformed").exists()
     assert mock_client.close.await_count == 1

@@ -135,7 +135,14 @@ class OperationService:
                 self.job_service.append_log(
                     job_id,
                     "Cleanup complete: "
-                    f"deleted={result.deleted} skipped={result.skipped} errors={result.errors}",
+                    f"deleted={result.deleted} skipped={result.skipped} errors={result.errors}; "
+                    f"database cleared ({result.cleared_progress} progress, "
+                    f"{result.deleted_mappings} mappings)"
+                    + (
+                        f"; removed directories: {', '.join(result.directories_removed)}"
+                        if result.directories_removed
+                        else ""
+                    ),
                 )
                 if result.errors:
                     error_msg = f"Cleanup completed with {result.errors} errors"

@@ -74,7 +74,9 @@ Select a connection and run operations against it:
 
 - **Browse** - Open the Object Browser filtered to this connection
 - **Export** - Start an export job that writes JSON artifacts under `./exports/...`
-- **Cleanup** - Delete non-default objects (destructive)
+- **Cleanup** - Same workflow as `aap-bridge cleanup`: clears migration state
+  tables, deletes non-default objects on the destination, and removes local
+  `exports/` and `xformed/` directories. Saved connections are preserved.
 
 Each operation runs as an async job with live log streaming.
 
