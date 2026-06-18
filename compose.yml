@@ -114,6 +114,7 @@ services:
       - ./config:/app/config:ro
       - ./exports:/app/exports
       - ./reports:/app/reports
+      - ./schemas:/app/schemas
 
   ui:
     image: localhost/aap-bridge-ui:latest

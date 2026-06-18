@@ -5,6 +5,7 @@ from aap_migration.api.dependencies import get_app_state, get_db
 from aap_migration.api.models import Connection, Job
 from aap_migration.api.schemas import (
     JobCreatedResponse,
+    MigratePrepRequest,
     MigratePreviewRequest,
     MigrateRunRequest,
     MigrationPreviewResponse,
@@ -35,6 +36,27 @@ def _has_active_jobs(db: Session, job_types: tuple[str, ...]) -> bool:
         .first()
         is not None
     )
+
+
+@router.post("/migrate/prep", response_model=JobCreatedResponse)
+def start_prep(data: MigratePrepRequest, db: Session = Depends(get_db)) -> JobCreatedResponse:
+    svc = ConnectionService(db)
+    source = svc.get(data.source_id)
+    dest = svc.get(data.destination_id)
+    if not source or not dest:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    _validate_migration_connections(source, dest)
+    if _has_active_jobs(db, ("migration-prep", "migration-run", "cleanup")):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot start prep while another migration or cleanup job is active",
+        )
+    state = get_app_state()
+    from aap_migration.api.services.migration_service import MigrationService
+
+    mig_svc = MigrationService(state.job_service, state.db_session_factory, state.loop)
+    job_id = mig_svc.start_prep(source, dest, force=data.force)
+    return JobCreatedResponse(job_id=job_id)
 
 
 @router.post("/migrate/preview", response_model=JobCreatedResponse)
@@ -73,7 +95,7 @@ def run_migration(data: MigrateRunRequest, db: Session = Depends(get_db)) -> Job
     if not source or not dest:
         raise HTTPException(status_code=404, detail="Connection not found")
     _validate_migration_connections(source, dest)
-    if _has_active_jobs(db, ("migration-run", "cleanup")):
+    if _has_active_jobs(db, ("migration-prep", "migration-run", "cleanup")):
         raise HTTPException(
             status_code=409,
             detail="Cannot start a migration while another migration or cleanup job is active",

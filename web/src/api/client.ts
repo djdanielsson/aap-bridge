@@ -74,6 +74,12 @@ export const api = {
 
   migrationPreview: (sourceId: string, destinationId: string) =>
     request<{ job_id: string }>('POST', '/api/migrate/preview', { source_id: sourceId, destination_id: destinationId }),
+  migrationPrep: (sourceId: string, destinationId: string, force = false) =>
+    request<{ job_id: string }>('POST', '/api/migrate/prep', {
+      source_id: sourceId,
+      destination_id: destinationId,
+      force,
+    }),
   getMigrationPreview: (jobId: string) =>
     request<unknown>('GET', `/api/migrate/preview/${jobId}`),
   migrationRun: (sourceId: string, destinationId: string, previewJobId: string) =>

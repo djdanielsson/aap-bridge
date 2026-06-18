@@ -361,6 +361,74 @@ class MigrationService:
             raise ValueError("Preview job does not match the selected destination connection")
         return preview_job.job_metadata
 
+    def start_prep(
+        self,
+        source: Connection,
+        dest: Connection,
+        *,
+        force: bool = False,
+    ) -> str:
+        job_id = self._create_job("migration-prep", source.id)
+        src_snap = self._snapshot_connection(source)
+        dst_snap = self._snapshot_connection(dest)
+        db_url = self._get_db_url()
+
+        async def _run() -> None:
+            try:
+                from aap_migration.api.services.cli_workflows import run_migration_prep
+
+                self.job_service.append_log(
+                    job_id, f"Starting prep: {src_snap['name']} -> {dst_snap['name']}"
+                )
+
+                src_conn = Connection()
+                for k, v in src_snap.items():
+                    setattr(src_conn, k, v)
+                dst_conn = Connection()
+                for k, v in dst_snap.items():
+                    setattr(dst_conn, k, v)
+
+                result = await run_migration_prep(
+                    src_conn,
+                    dst_conn,
+                    db_url,
+                    force=force,
+                    skip_if_exists=not force,
+                    log=lambda message: self.job_service.append_log(job_id, message),
+                )
+
+                if result.status != "completed":
+                    error_msg = result.message or "Prep failed"
+                    self.job_service.append_log(job_id, error_msg)
+                    self.job_service.mark_failed(job_id, error_msg)
+                    self._finish_job(
+                        job_id,
+                        "failed",
+                        error_msg,
+                        metadata={"status": result.status, "skipped": result.skipped},
+                    )
+                else:
+                    summary = "Prep skipped (schemas already exist)" if result.skipped else "Prep completed"
+                    self.job_service.append_log(job_id, summary)
+                    self.job_service.mark_completed(job_id)
+                    self._finish_job(
+                        job_id,
+                        "completed",
+                        metadata={"status": "completed", "skipped": result.skipped},
+                    )
+            except asyncio.CancelledError:
+                self.job_service.append_log(job_id, "Prep cancelled")
+                self.job_service.mark_cancelled(job_id)
+                self._finish_job(job_id, "cancelled")
+            except Exception as e:
+                self.job_service.append_log(job_id, f"Prep failed: {e}")
+                self.job_service.mark_failed(job_id, str(e))
+                self._finish_job(job_id, "failed", str(e))
+
+        task = asyncio.run_coroutine_threadsafe(_run(), self.loop)
+        self.job_service.register_task(job_id, task)
+        return job_id
+
     def start_preview(self, source: Connection, dest: Connection) -> str:
         job_id = self._create_job("migration-preview", source.id)
         src_snap = self._snapshot_connection(source)
@@ -555,14 +623,13 @@ class MigrationService:
 
                 self.job_service.append_log(
                     job_id,
-                    "Running phased migration (export → transform → import)...",
+                    "Running phased migration (prep if needed → export → transform → import)...",
                 )
                 result = await run_phased_migration(
                     src_conn,
                     dst_conn,
                     db_url,
                     log=lambda message: self.job_service.append_log(job_id, message),
-                    skip_prep=True,
                 )
 
                 if result.status != "completed":

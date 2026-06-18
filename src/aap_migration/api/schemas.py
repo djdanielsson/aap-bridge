@@ -96,6 +96,12 @@ class MigrateRunRequest(BaseModel):
     job_id: str
 
 
+class MigratePrepRequest(BaseModel):
+    source_id: str
+    destination_id: str
+    force: bool = False
+
+
 class MigrationResource(BaseModel):
     source_id: int
     name: str

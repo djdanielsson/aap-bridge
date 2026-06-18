@@ -41,6 +41,10 @@ export function Migrate() {
   const [clearMsg, setClearMsg] = useState('');
   const [clearVariant, setClearVariant] = useState<'success' | 'danger'>('success');
   const [clearingState, setClearingState] = useState(false);
+  const [prepJobId, setPrepJobId] = useState('');
+  const [prepping, setPrepping] = useState(false);
+  const [prepMsg, setPrepMsg] = useState('');
+  const [prepVariant, setPrepVariant] = useState<'success' | 'danger' | 'info'>('info');
   const activePreviewJobId = useRef('');
   const MAX_PREVIEW_POLL_ATTEMPTS = 600;
 
@@ -50,6 +54,47 @@ export function Migrate() {
   }, []);
 
   useEffect(() => { loadConnections(); }, [loadConnections]);
+
+  const handlePrep = async (force = false) => {
+    if (!sourceId || !destId || sourceId === destId) return;
+    if (force) {
+      const confirmed = window.confirm(
+        'Schema files already exist. Regenerate them from the selected source and destination?'
+      );
+      if (!confirmed) return;
+    }
+
+    setPrepping(true);
+    setPrepMsg('');
+    setPrepJobId('');
+    setPrepVariant('info');
+
+    try {
+      const result = await api.migrationPrep(sourceId, destId, force);
+      setPrepJobId(result.job_id);
+    } catch (err) {
+      setPrepVariant('danger');
+      setPrepMsg(err instanceof Error ? err.message : String(err));
+      setPrepping(false);
+    }
+  };
+
+  const handlePrepClose = (status: string) => {
+    if (!['completed', 'failed', 'cancelled'].includes(status)) {
+      return;
+    }
+    setPrepping(false);
+    if (status === 'completed') {
+      setPrepVariant('success');
+      setPrepMsg('Schema prep completed. You can preview or start a migration.');
+    } else if (status === 'cancelled') {
+      setPrepVariant('info');
+      setPrepMsg('Schema prep cancelled.');
+    } else {
+      setPrepVariant('danger');
+      setPrepMsg('Schema prep failed. Check the log for details.');
+    }
+  };
 
   const handlePreview = async () => {
     if (!sourceId || !destId) return;
@@ -152,6 +197,9 @@ export function Migrate() {
     setPreviewData(null);
     setPreviewError('');
     setRunError('');
+    setPrepJobId('');
+    setPrepMsg('');
+    setPrepping(false);
     setCancelling(false);
     setMigrationDone(false);
   };
@@ -173,7 +221,11 @@ export function Migrate() {
     <>
       <Title headingLevel="h1" size="2xl">Migrate</Title>
       <TextContent style={{ marginBottom: 16 }}>
-        <Text>Migrate resources from a source AAP instance to a destination AAP instance.</Text>
+        <Text>
+          Migrate resources from a source AAP instance to a destination AAP instance.
+          Run <strong>Prepare Schemas</strong> once per source/destination pair, or let migration
+          run prep automatically when schema files are missing.
+        </Text>
       </TextContent>
 
       {connections.length < 2 && (
@@ -238,8 +290,38 @@ export function Migrate() {
                   <Alert variant="danger" isInline title={previewError} />
                 </FlexItem>
               )}
+              {prepMsg && (
+                <FlexItem>
+                  <Alert variant={prepVariant} isInline title={prepMsg} />
+                </FlexItem>
+              )}
+              {prepJobId && (
+                <FlexItem>
+                  <Title headingLevel="h3">Prep Log</Title>
+                  <LogViewer jobId={prepJobId} onClose={handlePrepClose} />
+                </FlexItem>
+              )}
               <FlexItem>
                 <Flex spaceItems={{ default: 'spaceItemsMd' }}>
+                  <FlexItem>
+                    <Button
+                      variant="secondary"
+                      onClick={() => { void handlePrep(false); }}
+                      isDisabled={!sourceId || !destId || sourceId === destId || prepping || loading}
+                      isLoading={prepping && !prepJobId}
+                    >
+                      Prepare Schemas
+                    </Button>
+                  </FlexItem>
+                  <FlexItem>
+                    <Button
+                      variant="secondary"
+                      onClick={() => { void handlePrep(true); }}
+                      isDisabled={!sourceId || !destId || sourceId === destId || prepping || loading}
+                    >
+                      Regenerate Schemas
+                    </Button>
+                  </FlexItem>
                   <FlexItem>
                     <Button
                       variant="primary"
