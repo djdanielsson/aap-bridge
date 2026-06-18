@@ -8,8 +8,10 @@ import pytest
 from aap_migration.api.models import Connection
 from aap_migration.api.services.cli_workflows import (
     migration_resource_types,
+    migration_schemas_exist,
     run_connection_cleanup,
     run_connection_export,
+    run_migration_prep,
     run_phased_migration,
 )
 
@@ -134,15 +136,121 @@ def test_migration_resource_types_excludes_default_migration_exclusions() -> Non
 
 
 @pytest.mark.asyncio
+async def test_run_phased_migration_skips_prep_when_schemas_exist() -> None:
+    source = _connection(role="source", version="2.5")
+    dest = _connection(role="destination", version="2.6")
+    mock_ctx = MagicMock()
+    mock_ctx.source_client.close = AsyncMock()
+    mock_ctx.target_client.close = AsyncMock()
+
+    with (
+        patch(
+            "aap_migration.api.services.cli_workflows.build_migration_context_pair",
+            return_value=mock_ctx,
+        ),
+        patch(
+            "aap_migration.api.services.cli_workflows.migration_schemas_exist",
+            return_value=True,
+        ),
+        patch(
+            "aap_migration.api.services.cli_workflows._run_phased_migration_workflow",
+        ) as workflow,
+    ):
+        result = await run_phased_migration(source, dest, "sqlite:///test.db")
+
+    assert result.status == "completed"
+    workflow.assert_called_once()
+    assert workflow.call_args.kwargs["skip_prep"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_phased_migration_runs_prep_when_schemas_missing() -> None:
+    source = _connection(role="source", version="2.5")
+    dest = _connection(role="destination", version="2.6")
+    mock_ctx = MagicMock()
+    mock_ctx.source_client.close = AsyncMock()
+    mock_ctx.target_client.close = AsyncMock()
+
+    with (
+        patch(
+            "aap_migration.api.services.cli_workflows.build_migration_context_pair",
+            return_value=mock_ctx,
+        ),
+        patch(
+            "aap_migration.api.services.cli_workflows.migration_schemas_exist",
+            return_value=False,
+        ),
+        patch(
+            "aap_migration.api.services.cli_workflows._run_phased_migration_workflow",
+        ) as workflow,
+    ):
+        result = await run_phased_migration(source, dest, "sqlite:///test.db")
+
+    assert result.status == "completed"
+    workflow.assert_called_once()
+    assert workflow.call_args.kwargs["skip_prep"] is False
+
+
+@pytest.mark.asyncio
+async def test_run_migration_prep_delegates_to_prep_workflow() -> None:
+    source = _connection(role="source", version="2.5")
+    dest = _connection(role="destination", version="2.6")
+    mock_ctx = MagicMock()
+    mock_ctx.config.paths.schema_dir = "schemas"
+    mock_ctx.source_client.close = AsyncMock()
+    mock_ctx.target_client.close = AsyncMock()
+    prep_result = MagicMock(status="completed", message="", skipped=False)
+
+    with (
+        patch(
+            "aap_migration.api.services.cli_workflows.build_migration_context_pair",
+            return_value=mock_ctx,
+        ),
+        patch(
+            "aap_migration.prep.workflow.run_prep_workflow",
+            new_callable=AsyncMock,
+            return_value=prep_result,
+        ) as prep,
+    ):
+        result = await run_migration_prep(source, dest, "sqlite:///test.db", log=print)
+
+    assert result.status == "completed"
+    prep.assert_awaited_once()
+    mock_ctx.source_client.close.assert_awaited_once()
+    mock_ctx.target_client.close.assert_awaited_once()
+
+
+def test_migration_schemas_exist_checks_comparison_file(tmp_path: Path) -> None:
+    mock_ctx = MagicMock()
+    schema_dir = tmp_path / "schemas"
+    schema_dir.mkdir()
+    mock_ctx.config.paths.schema_dir = str(schema_dir)
+
+    assert migration_schemas_exist(mock_ctx) is False
+
+    (schema_dir / "schema_comparison.json").write_text("{}")
+    assert migration_schemas_exist(mock_ctx) is True
+
+
+@pytest.mark.asyncio
 async def test_run_phased_migration_invokes_cli_workflow() -> None:
     source = _connection(role="source", version="2.5")
     dest = _connection(role="destination", version="2.6")
     logs: list[str] = []
 
-    with patch(
-        "aap_migration.api.services.cli_workflows._run_phased_migration_workflow",
-        side_effect=lambda *args, **kwargs: logs.append("workflow"),
-    ) as workflow:
+    with (
+        patch(
+            "aap_migration.api.services.cli_workflows.build_migration_context_pair",
+            return_value=MagicMock(
+                source_client=AsyncMock(),
+                target_client=AsyncMock(),
+            ),
+        ),
+        patch(
+            "aap_migration.api.services.cli_workflows._run_phased_migration_workflow",
+            side_effect=lambda *args, **kwargs: logs.append("workflow"),
+        ) as workflow,
+    ):
         result = await run_phased_migration(
             source,
             dest,

@@ -69,6 +69,53 @@ def _export_resource_types() -> list[str]:
 
 
 @dataclass
+class PrepWorkflowResult:
+    status: str
+    message: str = ""
+    skipped: bool = False
+
+
+def schema_comparison_path(ctx: MigrationContext) -> Path:
+    """Return the schema comparison file path for a migration context."""
+    return Path(ctx.config.paths.schema_dir) / "schema_comparison.json"
+
+
+def migration_schemas_exist(ctx: MigrationContext) -> bool:
+    """Return True when schema comparison artifacts are present."""
+    return schema_comparison_path(ctx).exists()
+
+
+async def run_migration_prep(
+    source: Connection,
+    dest: Connection,
+    db_url: str,
+    *,
+    force: bool = False,
+    skip_if_exists: bool = True,
+    log: LogFn | None = None,
+) -> PrepWorkflowResult:
+    """Run endpoint discovery and schema generation for a connection pair."""
+    from aap_migration.prep.workflow import run_prep_workflow
+
+    ctx = build_migration_context_pair(source, dest, db_url)
+    output_dir = Path(ctx.config.paths.schema_dir)
+    try:
+        result = await run_prep_workflow(
+            ctx,
+            output_dir,
+            force=force,
+            skip_if_exists=skip_if_exists,
+            log=log,
+        )
+        if result.status == "failed":
+            return PrepWorkflowResult(status="failed", message=result.message)
+        return PrepWorkflowResult(status="completed", skipped=result.skipped)
+    finally:
+        await ctx.source_client.close()
+        await ctx.target_client.close()
+
+
+@dataclass
 class ExportWorkflowResult:
     output_dir: Path
     total_resources: int
@@ -325,11 +372,15 @@ async def run_phased_migration(
     log: LogFn | None = None,
     force: bool = False,
     resume: bool = False,
-    skip_prep: bool = True,
+    skip_prep: bool | None = None,
 ) -> PhasedMigrationResult:
     """Run export → transform → import using the CLI migration workflow."""
     ctx = build_migration_context_pair(source, dest, db_url)
+    if skip_prep is None:
+        skip_prep = migration_schemas_exist(ctx)
     try:
+        if not skip_prep and log:
+            log("Running prep (endpoint discovery and schema generation)...")
         await asyncio.to_thread(
             _run_phased_migration_workflow,
             ctx,
@@ -343,3 +394,6 @@ async def run_phased_migration(
         return PhasedMigrationResult(status="failed", message=str(exc))
     except Exception as exc:
         return PhasedMigrationResult(status="failed", message=str(exc))
+    finally:
+        await ctx.source_client.close()
+        await ctx.target_client.close()
