@@ -169,11 +169,13 @@ def prep(ctx: MigrationContext, output_dir: Path, force: bool) -> None:
                     ctx.source_client,
                     api_version=source_version,
                     ignored_endpoints=source_ignored,
+                    instance="source",
                 )
                 target_endpoints = await discover_endpoints(
                     ctx.target_client,
                     api_version=target_version,
                     ignored_endpoints=target_ignored,
+                    instance="target",
                 )
             # Log details to file only
             logger.info(

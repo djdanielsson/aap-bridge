@@ -258,9 +258,11 @@ class ApiLayout:
         return strip_api_path_prefix(path)
 
 
-def normalize_host_url(url: str) -> str:
+def normalize_host_url(url: str, *, instance: str | None = None) -> str:
     """Normalize a configured URL to scheme + host (no API path suffix)."""
     normalized = url.rstrip("/")
+    original = normalized
+    log_context = {"instance": instance} if instance else {}
     for suffix in API_PATH_SUFFIXES:
         if normalized.endswith(suffix):
             stripped = normalized[: -len(suffix)].rstrip("/")
@@ -269,9 +271,16 @@ def normalize_host_url(url: str) -> str:
                     "api_url_normalized",
                     api_url=url,
                     host_url=stripped,
+                    **log_context,
                 )
             normalized = stripped
             break
+    if instance and normalized == original:
+        logger.info(
+            "api_host_url_ready",
+            host_url=normalized,
+            **log_context,
+        )
     return normalized
 
 

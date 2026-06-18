@@ -1,26 +1,34 @@
 import httpx
 
 from aap_migration.api.models import Connection
+from aap_migration.api.services.connection_layout import build_connection_layout
 from aap_migration.api.services.token_crypto import decrypt_token
+from aap_migration.client.api_layout import ApiLayout
 
 
 class PlatformAdapter:
     def __init__(self, conn: Connection) -> None:
         self.conn = conn
-        self.api_prefix = (
-            conn.api_prefix
-            if conn.api_prefix is not None
-            else ("/api/v2" if conn.type == "awx" else "/api/controller/v2")
-        )
-        self.base_url = f"{conn.url}{self.api_prefix}"
+        self._layout: ApiLayout = build_connection_layout(conn)
         self.headers = {}
         token = decrypt_token(conn.token)
         if token:
             self.headers["Authorization"] = f"Bearer {token}"
 
+    @property
+    def base_url(self) -> str:
+        return self._layout.default_base_url
+
+    def _request_url(self, path: str) -> str:
+        endpoint = path.lstrip("/")
+        if not endpoint:
+            return f"{self._layout.default_base_url}/"
+        base = self._layout.base_for_endpoint(endpoint)
+        return f"{base}/{endpoint}"
+
     def _get(self, path: str, params: dict | None = None) -> dict:
         resp = httpx.get(
-            f"{self.base_url}{path}",
+            self._request_url(path),
             headers=self.headers,
             params=params,
             verify=self.conn.verify_ssl,

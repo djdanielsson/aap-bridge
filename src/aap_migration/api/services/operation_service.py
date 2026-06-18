@@ -102,6 +102,8 @@ class OperationService:
             "verify_ssl": conn.verify_ssl,
             "type": conn.type,
             "api_prefix": conn.api_prefix,
+            "version": conn.version,
+            "ping_status": conn.ping_status,
         }
 
     def start_cleanup(self, conn: Connection) -> str:

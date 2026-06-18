@@ -299,6 +299,8 @@ class MigrationService:
             "verify_ssl": conn.verify_ssl,
             "type": conn.type,
             "api_prefix": conn.api_prefix,
+            "version": conn.version,
+            "ping_status": conn.ping_status,
         }
 
     def _get_job(self, job_id: str) -> Job | None:

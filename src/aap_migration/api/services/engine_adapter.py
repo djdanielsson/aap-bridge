@@ -4,34 +4,38 @@ from contextlib import contextmanager
 
 from aap_migration.api.models import Connection
 from aap_migration.api.services.token_crypto import decrypt_token
+from aap_migration.client.api_layout import normalize_host_url
 from aap_migration.config import (
     AAPInstanceConfig,
     MigrationConfig,
     StateConfig,
     load_config_from_yaml,
+    normalize_aap_version,
 )
 
 
 def connection_to_aap_config(conn: Connection) -> AAPInstanceConfig:
-    api_prefix = (
-        conn.api_prefix
-        if conn.api_prefix is not None
-        else ("/api/v2" if conn.type == "awx" else "/api/controller/v2")
-    )
-    url = conn.url.rstrip("/") + api_prefix
+    if not conn.version or not conn.version.strip():
+        raise ValueError(
+            f"Connection '{conn.name}' has no AAP version. "
+            "Test the connection first to discover the version."
+        )
 
     return AAPInstanceConfig(
-        url=url,
+        url=normalize_host_url(conn.url),
         token=decrypt_token(conn.token),
+        version=normalize_aap_version(conn.version),
         verify_ssl=conn.verify_ssl,
         timeout=30,
     )
 
 
 def _connection_env(prefix: str, conn: Connection) -> dict[str, str]:
+    config = connection_to_aap_config(conn)
     return {
-        f"{prefix}__URL": connection_to_aap_config(conn).url,
-        f"{prefix}__TOKEN": decrypt_token(conn.token) or "",
+        f"{prefix}__URL": config.url,
+        f"{prefix}__TOKEN": config.token or "",
+        f"{prefix}__VERSION": config.version or "",
         f"{prefix}__VERIFY_SSL": str(conn.verify_ssl).lower(),
         f"{prefix}__TIMEOUT": "30",
     }

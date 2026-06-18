@@ -44,6 +44,10 @@ class TestNormalizeConnectionUrl:
                 "https://aap.example.com/gateway/api/controller/v2/",
                 "https://aap.example.com/gateway",
             ),
+            (
+                "https://aap.example.com/api/gateway/v1",
+                "https://aap.example.com",
+            ),
         ],
     )
     def test_strips_known_api_suffixes(self, url: str, expected: str):
@@ -60,6 +64,11 @@ class TestNormalizeConnectionUrl:
             "/api/controller/v2",
         ),
         ("https://awx.example.com/api/v2", "https://awx.example.com", "/api/v2"),
+        (
+            "https://aap.example.com/api/gateway/v1",
+            "https://aap.example.com",
+            "/api/gateway/v1",
+        ),
     ],
 )
 def test_split_connection_url_preserves_explicit_api_prefix(
@@ -234,15 +243,17 @@ def test_engine_adapter_decrypts_encrypted_token(monkeypatch: pytest.MonkeyPatch
         name="AAP gateway",
         type="aap",
         role="destination",
-        url="https://localhost:20947/api/controller/v2",
+        url="https://localhost:20947",
         token=encrypt_token("token"),
         verify_ssl=False,
-        api_prefix="",
+        version="2.6",
+        api_prefix="/api/controller/v2",
     )
 
     config = connection_to_aap_config(conn)
 
-    assert config.url == "https://localhost:20947/api/controller/v2"
+    assert config.url == "https://localhost:20947"
+    assert config.version == "2.6"
     assert config.token == "token"
 
 
@@ -252,10 +263,11 @@ def test_platform_adapter_decrypts_encrypted_token(monkeypatch: pytest.MonkeyPat
         name="AAP gateway",
         type="aap",
         role="destination",
-        url="https://localhost:20947/api/controller/v2",
+        url="https://localhost:20947",
         token=encrypt_token("token"),
         verify_ssl=False,
-        api_prefix="",
+        version="2.6",
+        api_prefix="/api/controller/v2",
     )
 
     adapter = PlatformAdapter(conn)
@@ -283,14 +295,17 @@ def test_test_connection_uses_decrypted_token(db_session, monkeypatch: pytest.Mo
         url="https://localhost:20947",
         token=encrypt_token("token"),
         verify_ssl=False,
+        api_prefix="/api/controller/v2",
     )
     auth_headers: list[dict[str, str]] = []
 
     def fake_get(url: str, **kwargs) -> DummyResponse:
         if url.endswith("/ping/"):
             return DummyResponse(200, {"version": "2.6"})
-        auth_headers.append(kwargs["headers"])
-        return DummyResponse(200, {})
+        if url.endswith("/me/"):
+            auth_headers.append(kwargs["headers"])
+            return DummyResponse(200, {})
+        raise AssertionError(f"unexpected URL: {url}")
 
     monkeypatch.setattr("aap_migration.api.services.connection_service.httpx.get", fake_get)
 

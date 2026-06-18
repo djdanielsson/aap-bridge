@@ -5,24 +5,24 @@ from sqlalchemy.orm import Session
 
 from aap_migration.api.models import Connection
 from aap_migration.api.schemas import ConnectionCreate, ConnectionUpdate, TestResult
+from aap_migration.api.services.connection_layout import (
+    me_probe_url,
+    normalize_connection_url,
+    ping_probe_candidates,
+    resolve_connection_version,
+    split_connection_url,
+)
+
+__all__ = [
+    "ConnectionService",
+    "MASKED_TOKEN",
+    "normalize_connection_url",
+    "split_connection_url",
+]
 from aap_migration.api.services.token_crypto import decrypt_token, encrypt_token
+from aap_migration.client.api_layout import parse_aap_major_minor
 
-KNOWN_API_SUFFIXES = ("/api/controller/v2", "/api/v2")
 MASKED_TOKEN = "********"
-
-
-def split_connection_url(url: str) -> tuple[str, str | None]:
-    normalized = url.strip().rstrip("/")
-    for suffix in KNOWN_API_SUFFIXES:
-        if normalized.endswith(suffix):
-            stripped = normalized[: -len(suffix)]
-            return stripped or normalized, suffix
-    return normalized, None
-
-
-def normalize_connection_url(url: str) -> str:
-    normalized, _ = split_connection_url(url)
-    return normalized
 
 
 def validate_connection_type_role(connection_type: str, role: str) -> None:
@@ -118,20 +118,10 @@ class ConnectionService:
         api_prefix = None
         bearer_token = self.get_token(conn)
 
-        api_prefixes = ["/api/controller/v2", "/api/v2"]
-        if conn.type == "awx":
-            api_prefixes = ["/api/v2"]
-
-        base_url = conn.url
-        for known_path in KNOWN_API_SUFFIXES:
-            if base_url.endswith(known_path):
-                api_prefixes = [""]
-                break
-
-        for prefix in api_prefixes:
+        for ping_url, prefix in ping_probe_candidates(conn):
             try:
                 resp = httpx.get(
-                    f"{conn.url}{prefix}/ping/",
+                    ping_url,
                     verify=conn.verify_ssl,
                     timeout=10,
                 )
@@ -141,15 +131,21 @@ class ConnectionService:
                     data = resp.json()
                     version = data.get("version", data.get("active_node", None))
                     break
-                else:
-                    ping_error = f"HTTP {resp.status_code}"
+                ping_error = f"HTTP {resp.status_code}"
             except Exception as e:
                 ping_error = str(e)
 
         if ping_status == "ok" and api_prefix is not None:
+            stored_version = version
+            if stored_version:
+                try:
+                    major, minor = parse_aap_major_minor(stored_version)
+                    stored_version = f"{major}.{minor}"
+                except ValueError:
+                    pass
             try:
                 resp = httpx.get(
-                    f"{conn.url}{api_prefix}/me/",
+                    me_probe_url(conn, stored_version),
                     headers={"Authorization": f"Bearer {bearer_token}"},
                     verify=conn.verify_ssl,
                     timeout=10,
@@ -161,6 +157,15 @@ class ConnectionService:
                     auth_error = f"HTTP {resp.status_code}"
             except Exception as e:
                 auth_error = str(e)
+
+        if ping_status == "ok" and version:
+            try:
+                major, minor = parse_aap_major_minor(version)
+                version = f"{major}.{minor}"
+            except ValueError:
+                pass
+        elif ping_status == "ok":
+            version = resolve_connection_version(conn)
 
         conn.ping_status = ping_status
         conn.ping_error = ping_error
