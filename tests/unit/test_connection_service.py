@@ -12,7 +12,6 @@ from aap_migration.api.services.connection_service import (
     split_connection_url,
 )
 from aap_migration.api.services.engine_adapter import connection_to_aap_config, load_runtime_config
-from aap_migration.api.services.platform_adapter import PlatformAdapter
 from aap_migration.api.services.token_crypto import (
     ENCRYPTED_TOKEN_PREFIX,
     TOKEN_ENCRYPTION_KEY_ENV,
@@ -301,25 +300,6 @@ export:
     assert config.target.version == "2.6"
     assert config.export.skip_credential_names == ["demo"]
     assert config.state.db_path == "sqlite:///test.db"
-
-
-def test_platform_adapter_decrypts_encrypted_token(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv(TOKEN_ENCRYPTION_KEY_ENV, Fernet.generate_key().decode())
-    conn = Connection(
-        name="AAP gateway",
-        type="aap",
-        role="destination",
-        url="https://localhost:20947",
-        token=encrypt_token("token"),
-        verify_ssl=False,
-        version="2.6",
-        api_prefix="/api/controller/v2",
-    )
-
-    adapter = PlatformAdapter(conn)
-
-    assert adapter.base_url == "https://localhost:20947/api/controller/v2"
-    assert adapter.headers["Authorization"] == "Bearer token"
 
 
 class DummyResponse:

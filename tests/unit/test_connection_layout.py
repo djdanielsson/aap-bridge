@@ -4,7 +4,6 @@ import pytest
 
 from aap_migration.api.models import Connection
 from aap_migration.api.services.connection_layout import resolve_connection_version
-from aap_migration.api.services.platform_adapter import PlatformAdapter
 from aap_migration.client.api_layout import (
     CONTROLLER_API_PREFIX,
     GATEWAY_API_PREFIX,
@@ -32,23 +31,3 @@ def test_resolve_connection_version(conn_kwargs: dict, expected_version: str) ->
         **conn_kwargs,
     )
     assert resolve_connection_version(conn) == expected_version
-
-
-def test_platform_adapter_routes_gateway_resources() -> None:
-    conn = Connection(
-        name="AAP",
-        type="aap",
-        role="destination",
-        url="https://aap.example.com",
-        token="token",
-        verify_ssl=True,
-        version="2.6",
-    )
-    adapter = PlatformAdapter(conn)
-
-    assert adapter._request_url("/organizations/") == (
-        f"https://aap.example.com{GATEWAY_API_PREFIX}/organizations/"
-    )
-    assert adapter._request_url("/projects/") == (
-        f"https://aap.example.com{CONTROLLER_API_PREFIX}/projects/"
-    )

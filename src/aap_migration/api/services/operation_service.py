@@ -220,7 +220,7 @@ class OperationService:
                 import json
                 from pathlib import Path
 
-                from aap_migration.api.services.platform_adapter import PlatformAdapter
+                from aap_migration.api.services.connection_client import fetch_connection_resources
 
                 self.job_service.append_log(
                     job_id, f"Starting export from {snap['name']} ({snap['url']})"
@@ -230,7 +230,6 @@ class OperationService:
                 for k, v in snap.items():
                     setattr(conn_model, k, v)
 
-                adapter = PlatformAdapter(conn_model)
                 safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", snap["name"]).strip("._")
                 if not safe_name:
                     safe_name = snap["id"]
@@ -261,7 +260,7 @@ class OperationService:
                 for rt in export_types:
                     self.job_service.append_log(job_id, f"Exporting {rt}...")
                     try:
-                        items = await asyncio.to_thread(adapter.fetch_all, rt)
+                        items = await fetch_connection_resources(conn_model, rt)
                         if items:
                             rt_dir = export_dir / rt
                             rt_dir.mkdir(parents=True, exist_ok=True)

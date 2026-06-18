@@ -1,7 +1,13 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from aap_migration.api.dependencies import get_db
+from aap_migration.api.services.connection_client import (
+    discover_connection_resource_types,
+    list_connection_resources,
+)
 from aap_migration.api.services.connection_service import ConnectionService
 
 router = APIRouter(tags=["resources"])
@@ -13,11 +19,8 @@ def list_resource_types(connection_id: str, db: Session = Depends(get_db)) -> li
     conn = svc.get(connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
-    from aap_migration.api.services.platform_adapter import PlatformAdapter
-
-    adapter = PlatformAdapter(conn)
     try:
-        return adapter.discover_resource_types()
+        return asyncio.run(discover_connection_resource_types(conn))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -35,10 +38,9 @@ def list_resources(
     conn = svc.get(connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
-    from aap_migration.api.services.platform_adapter import PlatformAdapter
-
-    adapter = PlatformAdapter(conn)
     try:
-        return adapter.list_resources(resource_type, page, page_size, search)
+        return asyncio.run(
+            list_connection_resources(conn, resource_type, page, page_size, search)
+        )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

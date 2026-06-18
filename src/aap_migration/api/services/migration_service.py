@@ -384,8 +384,8 @@ class MigrationService:
             context_token = ACTIVE_JOB_ID.set(job_id)
             try:
                 from aap_migration.api.models import Connection as ConnModel
+                from aap_migration.api.services.connection_client import fetch_connection_resources
                 from aap_migration.api.services.engine_adapter import load_runtime_config
-                from aap_migration.api.services.platform_adapter import PlatformAdapter
 
                 src_conn = ConnModel()
                 for k, v in src_snap.items():
@@ -394,8 +394,6 @@ class MigrationService:
                 for k, v in dst_snap.items():
                     setattr(dst_conn, k, v)
 
-                src_adapter = PlatformAdapter(src_conn)
-                dst_adapter = PlatformAdapter(dst_conn)
                 runtime_config = load_runtime_config(src_conn, dst_conn, self._get_db_url())
                 skip_credential_names = normalized_credential_skip_names(
                     runtime_config.export.skip_credential_names
@@ -414,7 +412,7 @@ class MigrationService:
                 for rt in PREVIEW_RESOURCE_TYPES:
                     canonical_type = normalize_resource_type(rt)
                     self.job_service.append_log(job_id, f"Fetching {rt} from source...")
-                    src_items = await asyncio.to_thread(src_adapter.fetch_all, rt)
+                    src_items = await fetch_connection_resources(src_conn, rt)
                     if not src_items:
                         continue
                     if rt == "credentials" and skip_credential_names:
@@ -434,7 +432,7 @@ class MigrationService:
 
                     self.job_service.append_log(job_id, f"  Found {len(src_items)} {rt} on source")
                     self.job_service.append_log(job_id, f"Fetching {rt} from destination...")
-                    dst_items = await asyncio.to_thread(dst_adapter.fetch_all, rt)
+                    dst_items = await fetch_connection_resources(dst_conn, rt)
                     dst_keys = (
                         set()
                         if canonical_type == "credentials"
