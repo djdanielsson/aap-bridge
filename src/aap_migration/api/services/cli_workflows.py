@@ -16,6 +16,7 @@ import click
 
 from aap_migration.api.models import Connection
 from aap_migration.api.services.engine_adapter import load_runtime_config
+from aap_migration.config import resolve_config_path
 from aap_migration.cli.commands.cleanup import (
     cancel_all_jobs,
     clear_database,
@@ -24,20 +25,37 @@ from aap_migration.cli.commands.cleanup import (
 )
 from aap_migration.cli.context import MigrationContext
 from aap_migration.client.aap_target_client import AAPTargetClient
-from aap_migration.migration.parallel_exporter import ParallelExportCoordinator
 from aap_migration.cli.commands.migrate import DEFAULT_MIGRATION_EXCLUDED_TYPES
+from aap_migration.migration.parallel_exporter import ParallelExportCoordinator
 from aap_migration.resources import (
+    ORGANIZATION_SCOPED_RESOURCES,
+    PARENT_SCOPED_RESOURCES,
     RESOURCE_REGISTRY,
+    ResourceCategory,
+    FULLY_SUPPORTED_TYPES,
+    get_endpoint,
     get_exportable_types,
+    get_importable_types,
+    get_resource_category,
     normalize_resource_type,
 )
 
 LogFn = Callable[[str], None]
 
+PREVIEW_DETAIL_LIMIT = 200
+PREVIEW_TRUNCATE_TYPES = frozenset({"hosts", "groups"})
+
+
+def _web_migration_context() -> MigrationContext:
+    """Build a MigrationContext shell with config path for Web UI CLI invocations."""
+    ctx = MigrationContext()
+    ctx.config_path = resolve_config_path()
+    return ctx
+
 
 def build_migration_context(conn: Connection, db_url: str) -> MigrationContext:
     """Build a MigrationContext for a single saved connection."""
-    ctx = MigrationContext()
+    ctx = _web_migration_context()
     ctx._config = load_runtime_config(conn, conn, db_url)
     return ctx
 
@@ -46,26 +64,53 @@ def build_migration_context_pair(
     source: Connection, dest: Connection, db_url: str
 ) -> MigrationContext:
     """Build a MigrationContext for a source/destination migration pair."""
-    ctx = MigrationContext()
+    ctx = _web_migration_context()
     ctx._config = load_runtime_config(source, dest, db_url)
     return ctx
 
 
 def migration_resource_types() -> list[str]:
     """Return exportable migration resource types in migration order."""
-    return _export_resource_types()
+    return filtered_migration_resource_types()
+
+
+def filtered_migration_resource_types() -> list[str]:
+    """Return resource types using the same filters as CLI export/migrate."""
+    discovered_export = get_exportable_types(use_discovered=True)
+    discovered_import = get_importable_types(use_discovered=True)
+
+    if discovered_export and discovered_import:
+        import_types = {normalize_resource_type(name) for name in discovered_import}
+        candidate_types = [
+            normalize_resource_type(name)
+            for name in discovered_export
+            if normalize_resource_type(name) in import_types
+        ]
+    else:
+        candidate_types = [normalize_resource_type(name) for name in FULLY_SUPPORTED_TYPES]
+
+    types_to_process: list[str] = []
+    seen: set[str] = set()
+    for resource_type in candidate_types:
+        if resource_type in DEFAULT_MIGRATION_EXCLUDED_TYPES or resource_type in seen:
+            continue
+        if get_resource_category(resource_type) == ResourceCategory.NEVER_MIGRATE:
+            continue
+        try:
+            get_endpoint(resource_type)
+        except KeyError:
+            continue
+        seen.add(resource_type)
+        types_to_process.append(resource_type)
+
+    types_to_process.sort(
+        key=lambda rt: RESOURCE_REGISTRY[rt].migration_order if rt in RESOURCE_REGISTRY else 999
+    )
+    return types_to_process
 
 
 def _export_resource_types() -> list[str]:
-    types_to_export: list[str] = []
-    for resource_type in get_exportable_types(use_discovered=True):
-        normalized = normalize_resource_type(resource_type)
-        if normalized not in DEFAULT_MIGRATION_EXCLUDED_TYPES:
-            types_to_export.append(normalized)
-    types_to_export.sort(
-        key=lambda rt: RESOURCE_REGISTRY[rt].migration_order if rt in RESOURCE_REGISTRY else 999
-    )
-    return types_to_export
+    return filtered_migration_resource_types()
 
 
 @dataclass
@@ -113,6 +158,223 @@ async def run_migration_prep(
     finally:
         await ctx.source_client.close()
         await ctx.target_client.close()
+
+
+def _preview_summary_field_name(item: dict, field_name: str) -> str | None:
+    summary_fields = item.get("summary_fields") or {}
+    field_summary = summary_fields.get(field_name)
+    if isinstance(field_summary, dict):
+        return field_summary.get("name") or field_summary.get("username")
+    return None
+
+
+def _preview_summary_field_value(item: dict, field_name: str, value_name: str) -> str | None:
+    summary_fields = item.get("summary_fields") or {}
+    field_summary = summary_fields.get(field_name)
+    if isinstance(field_summary, dict):
+        value = field_summary.get(value_name)
+        if isinstance(value, str):
+            return value
+    return None
+
+
+def _preview_resource_identifier(resource_type: str, item: dict) -> str:
+    username = item.get("username")
+    if resource_type == "users" and isinstance(username, str) and username:
+        return username
+    name = item.get("name")
+    if isinstance(name, str) and name:
+        return name
+    if isinstance(username, str) and username:
+        return username
+    return f"id-{item.get('id', '?')}"
+
+
+def _preview_match_key(resource_type: str, item: dict) -> str | tuple[str, str]:
+    canonical_type = normalize_resource_type(resource_type)
+    if canonical_type == "credentials":
+        return f"credential:{item.get('id', '?')}"
+    identifier = _preview_resource_identifier(resource_type, item)
+    if canonical_type in ORGANIZATION_SCOPED_RESOURCES:
+        org_name = _preview_summary_field_name(item, "organization")
+        if org_name:
+            return (identifier, org_name)
+    if canonical_type in PARENT_SCOPED_RESOURCES:
+        parent_field = PARENT_SCOPED_RESOURCES[canonical_type]
+        parent_name = _preview_summary_field_name(item, parent_field)
+        if parent_name:
+            if parent_field == "unified_job_template":
+                parent_type = (
+                    item.get("_ujt_resource_type")
+                    or _preview_summary_field_value(item, parent_field, "unified_job_type")
+                    or parent_field
+                )
+                return (identifier, f"{parent_type}:{parent_name}")
+            return (identifier, parent_name)
+    return identifier
+
+
+@dataclass
+class MigrationPreviewResult:
+    resources: dict[str, list[dict]]
+    resource_summaries: dict[str, dict]
+    host_counts: dict[str, int]
+    group_counts: dict[str, int]
+    warnings: list[str]
+
+
+async def run_migration_preview(
+    source: Connection,
+    dest: Connection,
+    db_url: str,
+    *,
+    log: LogFn | None = None,
+) -> MigrationPreviewResult:
+    """Compare source and destination resources using CLI-equivalent type filters."""
+    from aap_migration.api.services.connection_client import (
+        create_connection_client,
+        fetch_resources_with_client,
+    )
+    from aap_migration.client.exceptions import NotFoundError
+    from aap_migration.config import normalized_credential_skip_names
+
+    ctx = build_migration_context_pair(source, dest, db_url)
+    skip_credential_names = normalized_credential_skip_names(
+        ctx.config.export.skip_credential_names
+    )
+    resource_types = filtered_migration_resource_types()
+    parallel_enabled = ctx.config.performance.parallel_resource_types
+    max_concurrent = ctx.config.performance.max_concurrent_types
+
+    if log:
+        mode = "parallel" if parallel_enabled else "sequential"
+        log(f"Previewing {len(resource_types)} resource types ({mode}, max {max_concurrent})")
+
+    resources: dict[str, list[dict]] = {}
+    resource_summaries: dict[str, dict] = {}
+    host_counts: dict[str, int] = {}
+    group_counts: dict[str, int] = {}
+    warnings: list[str] = []
+
+    src_client = create_connection_client(source)
+    dst_client = create_connection_client(dest)
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def preview_resource_type(resource_type: str) -> None:
+        canonical_type = normalize_resource_type(resource_type)
+        try:
+            if log:
+                log(f"Fetching {resource_type} from source and destination...")
+            src_items, dst_items = await asyncio.gather(
+                fetch_resources_with_client(src_client, source, resource_type),
+                fetch_resources_with_client(dst_client, dest, resource_type),
+            )
+        except NotFoundError as exc:
+            warning = f"Skipping {resource_type}: {exc}"
+            warnings.append(warning)
+            if log:
+                log(f"  {warning}")
+            return
+
+        if not src_items:
+            return
+
+        if resource_type == "credentials" and skip_credential_names:
+            original_count = len(src_items)
+            src_items = [
+                item
+                for item in src_items
+                if str(item.get("name", "")).strip().casefold() not in skip_credential_names
+            ]
+            skipped_by_policy = original_count - len(src_items)
+            if skipped_by_policy:
+                warnings.append(
+                    f"Excluded {skipped_by_policy} credentials based on export.skip_credential_names."
+                )
+        if not src_items:
+            return
+
+        if log:
+            log(f"  Found {len(src_items)} {resource_type} on source")
+            log(f"  Found {len(dst_items)} {resource_type} on destination")
+
+        dst_keys = (
+            set()
+            if canonical_type == "credentials"
+            else {_preview_match_key(resource_type, item) for item in dst_items}
+        )
+
+        display_resources: list[dict] = []
+        total_count = 0
+        create_count = 0
+        should_truncate = resource_type in PREVIEW_TRUNCATE_TYPES
+        for item in src_items:
+            action = (
+                "create"
+                if canonical_type == "credentials"
+                else "skip_exists"
+                if _preview_match_key(resource_type, item) in dst_keys
+                else "create"
+            )
+            total_count += 1
+            if action == "create":
+                create_count += 1
+            if not should_truncate or len(display_resources) < PREVIEW_DETAIL_LIMIT:
+                display_resources.append(
+                    {
+                        "source_id": item.get("id", 0),
+                        "name": _preview_resource_identifier(resource_type, item),
+                        "type": resource_type,
+                        "action": action,
+                    }
+                )
+
+        if total_count:
+            summary = {
+                "total": total_count,
+                "create": create_count,
+                "skip_exists": total_count - create_count,
+                "displayed": len(display_resources),
+                "truncated": should_truncate and total_count > PREVIEW_DETAIL_LIMIT,
+            }
+            if summary["truncated"]:
+                warnings.append(
+                    f"{resource_type} preview is truncated to the first {PREVIEW_DETAIL_LIMIT} rows."
+                )
+            resources[resource_type] = display_resources
+            resource_summaries[resource_type] = summary
+
+        if resource_type == "inventories":
+            for item in src_items:
+                inv_name = item.get("name", "")
+                host_counts[inv_name] = item.get("total_hosts", 0)
+                group_counts[inv_name] = item.get("total_groups", 0)
+
+    async def preview_with_limit(resource_type: str) -> None:
+        if parallel_enabled:
+            async with semaphore:
+                await preview_resource_type(resource_type)
+        else:
+            await preview_resource_type(resource_type)
+
+    try:
+        await asyncio.gather(*(preview_with_limit(rt) for rt in resource_types))
+    finally:
+        await src_client.close()
+        await dst_client.close()
+
+    total_create = sum(1 for items in resources.values() for item in items if item["action"] == "create")
+    total_skip = sum(1 for items in resources.values() for item in items if item["action"] != "create")
+    if log:
+        log(f"Preview complete: {total_create} to create, {total_skip} to skip")
+
+    return MigrationPreviewResult(
+        resources=resources,
+        resource_summaries=resource_summaries,
+        host_counts=host_counts,
+        group_counts=group_counts,
+        warnings=warnings,
+    )
 
 
 @dataclass
@@ -397,3 +659,221 @@ async def run_phased_migration(
     finally:
         await ctx.source_client.close()
         await ctx.target_client.close()
+
+
+@contextmanager
+def _web_progress_display(log: LogFn | None) -> Iterator[None]:
+    """Route Rich progress panels to TUI-style log lines for Web UI jobs.
+
+    The class is imported directly (``from ... import MigrationProgressDisplay``)
+    in every module that uses it, so we must patch the name in each importer —
+    patching only the source module has no effect on already-bound names.
+    """
+    from aap_migration.api.services import web_progress
+    from aap_migration.reporting import live_progress
+
+    def _factory(**kwargs) -> web_progress.LogMigrationProgressDisplay:
+        return web_progress.LogMigrationProgressDisplay(
+            log=log,
+            enabled=kwargs.get("enabled", True),
+            show_stats=kwargs.get("show_stats", False),
+            title=kwargs.get("title", "AAP Migration Progress"),
+        )
+
+    # All modules that bind MigrationProgressDisplay at import time.
+    import importlib
+    _target_modules = [
+        "aap_migration.reporting.live_progress",
+        "aap_migration.reporting.progress_orchestrator",
+        "aap_migration.cli.commands.export_import",
+        "aap_migration.cli.commands.transform",
+        "aap_migration.cli.commands.cleanup",
+        "aap_migration.cli.commands.patch_projects",
+        "aap_migration.migration.coordinator",
+    ]
+    originals: dict[str, object] = {}
+    for mod_name in _target_modules:
+        mod = importlib.import_module(mod_name)
+        if hasattr(mod, "MigrationProgressDisplay"):
+            originals[mod_name] = mod.MigrationProgressDisplay
+            mod.MigrationProgressDisplay = _factory  # type: ignore[attr-defined]
+
+    try:
+        yield
+    finally:
+        for mod_name, original in originals.items():
+            mod = importlib.import_module(mod_name)
+            mod.MigrationProgressDisplay = original  # type: ignore[attr-defined]
+
+
+def _run_export_command(
+    ctx: MigrationContext,
+    *,
+    force: bool,
+    resume: bool,
+    log: LogFn | None,
+) -> None:
+    from aap_migration.cli.commands.export_import import export
+
+    resource_types = filtered_migration_resource_types()
+    export_ctx = click.Context(export)
+    export_ctx.obj = ctx
+    with _route_click_output_to_log(log), _web_progress_display(log):
+        export_ctx.invoke(
+            export,
+            resource_type=tuple(resource_types),
+            output=Path(ctx.config.paths.export_dir),
+            force=force,
+            records_per_file=ctx.config.export.records_per_file,
+            resume=resume,
+            yes=True,
+        )
+
+
+def _run_transform_command(
+    ctx: MigrationContext,
+    *,
+    force: bool,
+    log: LogFn | None,
+) -> None:
+    from aap_migration.cli.commands.transform import transform
+
+    transform_ctx = click.Context(transform)
+    transform_ctx.obj = ctx
+    with _route_click_output_to_log(log), _web_progress_display(log):
+        transform_ctx.invoke(
+            transform,
+            input_dir=Path(ctx.config.paths.export_dir),
+            output_dir=Path(ctx.config.paths.transform_dir),
+            schema_file=schema_comparison_path(ctx),
+            force=force,
+            resource_type=(),
+            quiet=False,
+            disable_progress=False,
+            skip_pending_deletion=True,
+            defer_project_sync=True,
+            yes=True,
+        )
+
+
+def _run_import_command(
+    ctx: MigrationContext,
+    *,
+    phase: str,
+    force: bool,
+    resume: bool,
+    log: LogFn | None,
+) -> None:
+    from aap_migration.cli.commands.export_import import import_cmd
+
+    import_ctx = click.Context(import_cmd)
+    import_ctx.obj = ctx
+    with _route_click_output_to_log(log), _web_progress_display(log):
+        import_ctx.invoke(
+            import_cmd,
+            input_dir=Path(ctx.config.paths.transform_dir),
+            resource_type=(),
+            force=force,
+            resume=resume,
+            dry_run=False,
+            skip_dependencies=False,
+            check_dependencies=False,
+            force_reimport=False,
+            phase=phase,
+            yes=True,
+        )
+
+
+async def _run_pair_command(
+    source: Connection,
+    dest: Connection,
+    db_url: str,
+    runner,
+    *,
+    log: LogFn | None = None,
+    **kwargs,
+) -> PhasedMigrationResult:
+    ctx = build_migration_context_pair(source, dest, db_url)
+    try:
+        await asyncio.to_thread(runner, ctx, log=log, **kwargs)
+        return PhasedMigrationResult(status="completed")
+    except click.ClickException as exc:
+        return PhasedMigrationResult(status="failed", message=str(exc))
+    except Exception as exc:
+        return PhasedMigrationResult(status="failed", message=str(exc))
+    finally:
+        await ctx.source_client.close()
+        await ctx.target_client.close()
+
+
+async def run_migration_export(
+    source: Connection,
+    dest: Connection,
+    db_url: str,
+    *,
+    log: LogFn | None = None,
+    force: bool = False,
+    resume: bool = False,
+) -> PhasedMigrationResult:
+    """Run CLI export (all) with parallel resource types when enabled in config."""
+    return await _run_pair_command(
+        source,
+        dest,
+        db_url,
+        _run_export_command,
+        log=log,
+        force=force,
+        resume=resume,
+    )
+
+
+async def run_migration_transform(
+    source: Connection,
+    dest: Connection,
+    db_url: str,
+    *,
+    log: LogFn | None = None,
+    force: bool = False,
+) -> PhasedMigrationResult:
+    """Run CLI transform (all) with parallel resource types when enabled in config."""
+    return await _run_pair_command(
+        source,
+        dest,
+        db_url,
+        _run_transform_command,
+        log=log,
+        force=force,
+    )
+
+
+async def run_migration_import(
+    source: Connection,
+    dest: Connection,
+    db_url: str,
+    *,
+    phase: str,
+    log: LogFn | None = None,
+    force: bool = False,
+    resume: bool = False,
+) -> PhasedMigrationResult:
+    """Run CLI import for phase1 or phase2."""
+    return await _run_pair_command(
+        source,
+        dest,
+        db_url,
+        _run_import_command,
+        log=log,
+        phase=phase,
+        force=force,
+        resume=resume,
+    )
+
+
+async def run_migration_cleanup(
+    dest: Connection,
+    db_url: str,
+    *,
+    log: LogFn | None = None,
+) -> CleanupWorkflowResult:
+    """Run CLI-equivalent cleanup on the destination connection."""
+    return await run_connection_cleanup(dest, db_url, log=log)

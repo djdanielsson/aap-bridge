@@ -7,6 +7,8 @@ import pytest
 
 from aap_migration.api.models import Connection
 from aap_migration.api.services.cli_workflows import (
+    build_migration_context_pair,
+    filtered_migration_resource_types,
     migration_resource_types,
     migration_schemas_exist,
     run_connection_cleanup,
@@ -28,6 +30,24 @@ def _connection(**kwargs) -> Connection:
     }
     defaults.update(kwargs)
     return Connection(**defaults)
+
+
+def test_build_migration_context_pair_sets_config_path_for_cli_commands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _connection(role="source", version="2.5")
+    dest = _connection(role="destination", version="2.6")
+    config_path = Path("/tmp/config.yaml")
+    monkeypatch.setenv("AAP_BRIDGE_CONFIG", str(config_path))
+
+    with patch(
+        "aap_migration.api.services.cli_workflows.load_runtime_config",
+        return_value=MagicMock(),
+    ):
+        ctx = build_migration_context_pair(source, dest, "sqlite:///test.db")
+
+    assert ctx.config_path == config_path.resolve()
+    assert ctx._config is not None
 
 
 @pytest.mark.asyncio
@@ -133,6 +153,25 @@ def test_migration_resource_types_excludes_default_migration_exclusions() -> Non
     assert "organizations" in types
     assert "instances" not in types
     assert "instance_groups" not in types
+
+
+def test_filtered_migration_resource_types_skips_never_migrate_discoveries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "aap_migration.api.services.cli_workflows.get_exportable_types",
+        lambda use_discovered=False: ["organizations", "legacy_auth", "authenticators"],
+    )
+    monkeypatch.setattr(
+        "aap_migration.api.services.cli_workflows.get_importable_types",
+        lambda use_discovered=False: ["organizations", "legacy_auth", "authenticators"],
+    )
+
+    types = filtered_migration_resource_types()
+
+    assert "organizations" in types
+    assert "legacy_auth" not in types
+    assert "authenticators" not in types
 
 
 @pytest.mark.asyncio

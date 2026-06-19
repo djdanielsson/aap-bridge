@@ -112,6 +112,17 @@ class MigrateRunRequest(BaseModel):
     job_id: str
 
 
+class MigratePairRequest(BaseModel):
+    source_id: str
+    destination_id: str
+    force: bool = False
+    resume: bool = False
+
+
+class MigrateImportRequest(MigratePairRequest):
+    phase: Literal["phase1", "phase2"]
+
+
 class MigratePrepRequest(BaseModel):
     source_id: str
     destination_id: str

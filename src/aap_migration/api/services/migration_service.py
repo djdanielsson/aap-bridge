@@ -10,15 +10,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from aap_migration.api.models import Connection, Job
 from aap_migration.api.schemas import MigrationPreviewResponse
 from aap_migration.api.services.job_service import JobService
-from aap_migration.config import normalized_credential_skip_names
-from aap_migration.resources import (
-    ORGANIZATION_SCOPED_RESOURCES,
-    PARENT_SCOPED_RESOURCES,
-    normalize_resource_type,
-)
-
-PREVIEW_DETAIL_LIMIT = 200
-PREVIEW_TRUNCATE_TYPES = {"hosts", "groups"}
 
 ACTIVE_JOB_ID: contextvars.ContextVar[str] = contextvars.ContextVar(
     "migration_service_active_job_id",
@@ -315,40 +306,6 @@ class MigrationService:
                 return value
         return None
 
-    def _resource_identifier(self, resource_type: str, item: dict) -> str:
-        username = item.get("username")
-        if resource_type == "users" and isinstance(username, str) and username:
-            return username
-        name = item.get("name")
-        if isinstance(name, str) and name:
-            return name
-        if isinstance(username, str) and username:
-            return username
-        return f"id-{item.get('id', '?')}"
-
-    def _preview_match_key(self, resource_type: str, item: dict) -> str | tuple[str, str]:
-        canonical_type = normalize_resource_type(resource_type)
-        if canonical_type == "credentials":
-            return f"credential:{item.get('id', '?')}"
-        identifier = self._resource_identifier(resource_type, item)
-        if canonical_type in ORGANIZATION_SCOPED_RESOURCES:
-            org_name = self._summary_field_name(item, "organization")
-            if org_name:
-                return (identifier, org_name)
-        if canonical_type in PARENT_SCOPED_RESOURCES:
-            parent_field = PARENT_SCOPED_RESOURCES[canonical_type]
-            parent_name = self._summary_field_name(item, parent_field)
-            if parent_name:
-                if parent_field == "unified_job_template":
-                    parent_type = (
-                        item.get("_ujt_resource_type")
-                        or self._summary_field_value(item, parent_field, "unified_job_type")
-                        or parent_field
-                    )
-                    return (identifier, f"{parent_type}:{parent_name}")
-                return (identifier, parent_name)
-        return identifier
-
     def _validate_preview_job(self, preview_job_id: str, source_id: str, destination_id: str) -> dict:
         preview_job = self._get_job(preview_job_id)
         if not preview_job or preview_job.type != "migration-preview":
@@ -439,9 +396,7 @@ class MigrationService:
             context_token = ACTIVE_JOB_ID.set(job_id)
             try:
                 from aap_migration.api.models import Connection as ConnModel
-                from aap_migration.api.services.cli_workflows import migration_resource_types
-                from aap_migration.api.services.connection_client import fetch_connection_resources
-                from aap_migration.api.services.engine_adapter import load_runtime_config
+                from aap_migration.api.services.cli_workflows import run_migration_preview
 
                 src_conn = ConnModel()
                 for k, v in src_snap.items():
@@ -450,119 +405,25 @@ class MigrationService:
                 for k, v in dst_snap.items():
                     setattr(dst_conn, k, v)
 
-                runtime_config = load_runtime_config(src_conn, dst_conn, self._get_db_url())
-                skip_credential_names = normalized_credential_skip_names(
-                    runtime_config.export.skip_credential_names
-                )
-
                 self.job_service.append_log(
                     job_id, f"Starting migration preview: {src_snap['name']} -> {dst_snap['name']}"
                 )
 
-                resources: dict[str, list[dict]] = {}
-                resource_summaries: dict[str, dict] = {}
-                host_counts: dict[str, int] = {}
-                group_counts: dict[str, int] = {}
-                warnings: list[str] = []
-
-                for rt in migration_resource_types():
-                    canonical_type = normalize_resource_type(rt)
-                    self.job_service.append_log(job_id, f"Fetching {rt} from source...")
-                    src_items = await fetch_connection_resources(src_conn, rt)
-                    if not src_items:
-                        continue
-                    if rt == "credentials" and skip_credential_names:
-                        original_count = len(src_items)
-                        src_items = [
-                            item
-                            for item in src_items
-                            if str(item.get("name", "")).strip().casefold() not in skip_credential_names
-                        ]
-                        skipped_by_policy = original_count - len(src_items)
-                        if skipped_by_policy:
-                            warnings.append(
-                                f"Excluded {skipped_by_policy} credentials based on export.skip_credential_names."
-                            )
-                    if not src_items:
-                        continue
-
-                    self.job_service.append_log(job_id, f"  Found {len(src_items)} {rt} on source")
-                    self.job_service.append_log(job_id, f"Fetching {rt} from destination...")
-                    dst_items = await fetch_connection_resources(dst_conn, rt)
-                    dst_keys = (
-                        set()
-                        if canonical_type == "credentials"
-                        else {self._preview_match_key(rt, item) for item in dst_items}
-                    )
-                    self.job_service.append_log(
-                        job_id, f"  Found {len(dst_items)} {rt} on destination"
-                    )
-
-                    display_resources: list[dict] = []
-                    total_count = 0
-                    create_count = 0
-                    should_truncate = rt in PREVIEW_TRUNCATE_TYPES
-                    for item in src_items:
-                        name = self._resource_identifier(rt, item)
-                        action = (
-                            "create"
-                            if canonical_type == "credentials"
-                            else "skip_exists"
-                            if self._preview_match_key(rt, item) in dst_keys
-                            else "create"
-                        )
-                        total_count += 1
-                        if action == "create":
-                            create_count += 1
-                        if not should_truncate or len(display_resources) < PREVIEW_DETAIL_LIMIT:
-                            display_resources.append(
-                                {
-                                    "source_id": item.get("id", 0),
-                                    "name": name,
-                                    "type": rt,
-                                    "action": action,
-                                }
-                            )
-
-                    if total_count:
-                        summary = {
-                            "total": total_count,
-                            "create": create_count,
-                            "skip_exists": total_count - create_count,
-                            "displayed": len(display_resources),
-                            "truncated": should_truncate and total_count > PREVIEW_DETAIL_LIMIT,
-                        }
-                        if summary["truncated"]:
-                            warnings.append(
-                                f"{rt} preview is truncated to the first {PREVIEW_DETAIL_LIMIT} rows."
-                            )
-                        resources[rt] = display_resources
-                        resource_summaries[rt] = summary
-
-                    if rt == "inventories":
-                        for item in src_items:
-                            inv_name = item.get("name", "")
-                            host_counts[inv_name] = item.get("total_hosts", 0)
-                            group_counts[inv_name] = item.get("total_groups", 0)
-
-                total_create = sum(
-                    1 for items in resources.values() for i in items if i["action"] == "create"
-                )
-                total_skip = sum(
-                    1 for items in resources.values() for i in items if i["action"] != "create"
-                )
-                self.job_service.append_log(
-                    job_id, f"Preview complete: {total_create} to create, {total_skip} to skip"
+                result = await run_migration_preview(
+                    src_conn,
+                    dst_conn,
+                    self._get_db_url(),
+                    log=lambda message: self.job_service.append_log(job_id, message),
                 )
 
                 preview_data = {
                     "source_id": src_snap["id"],
                     "destination_id": dst_snap["id"],
-                    "resources": resources,
-                    "resource_summaries": resource_summaries,
-                    "warnings": warnings,
-                    "host_counts": host_counts,
-                    "group_counts": group_counts,
+                    "resources": result.resources,
+                    "resource_summaries": result.resource_summaries,
+                    "warnings": result.warnings,
+                    "host_counts": result.host_counts,
+                    "group_counts": result.group_counts,
                 }
                 self.job_service.mark_completed(job_id)
                 self._finish_job(job_id, "completed", metadata=preview_data)
@@ -591,6 +452,154 @@ class MigrationService:
             return MigrationPreviewResponse(**job.job_metadata)
         finally:
             db.close()
+
+    def _start_cli_pair_job(
+        self,
+        job_type: str,
+        source: Connection,
+        dest: Connection,
+        *,
+        label: str,
+        runner,
+        runner_kwargs: dict | None = None,
+    ) -> str:
+        job_id = self._create_job(job_type, source.id)
+        src_snap = self._snapshot_connection(source)
+        dst_snap = self._snapshot_connection(dest)
+        db_url = self._get_db_url()
+        kwargs = runner_kwargs or {}
+
+        async def _run() -> None:
+            handler = self._attach_log_handler(job_id)
+            context_token = ACTIVE_JOB_ID.set(job_id)
+            try:
+                src_conn = Connection()
+                for k, v in src_snap.items():
+                    setattr(src_conn, k, v)
+                dst_conn = Connection()
+                for k, v in dst_snap.items():
+                    setattr(dst_conn, k, v)
+
+                self.job_service.append_log(
+                    job_id, f"{label}: {src_snap['name']} -> {dst_snap['name']}"
+                )
+                result = await runner(
+                    src_conn,
+                    dst_conn,
+                    db_url,
+                    log=lambda message: self.job_service.append_log(job_id, message),
+                    **kwargs,
+                )
+                status = getattr(result, "status", "completed")
+                message = getattr(result, "message", "")
+                if status != "completed":
+                    error_msg = message or f"{label} failed"
+                    self.job_service.append_log(job_id, error_msg)
+                    self.job_service.mark_failed(job_id, error_msg)
+                    self._finish_job(job_id, "failed", error_msg)
+                else:
+                    self.job_service.append_log(job_id, f"{label} completed successfully")
+                    self.job_service.mark_completed(job_id)
+                    self._finish_job(job_id, "completed")
+            except asyncio.CancelledError:
+                self.job_service.append_log(job_id, f"{label} cancelled")
+                self.job_service.mark_cancelled(job_id)
+                self._finish_job(job_id, "cancelled")
+            except Exception as e:
+                self.job_service.append_log(job_id, f"{label} failed: {e}")
+                self.job_service.mark_failed(job_id, str(e))
+                self._finish_job(job_id, "failed", str(e))
+            finally:
+                ACTIVE_JOB_ID.reset(context_token)
+                self._detach_log_handler(handler)
+
+        task = asyncio.run_coroutine_threadsafe(_run(), self.loop)
+        self.job_service.register_task(job_id, task)
+        return job_id
+
+    def start_cleanup(self, source: Connection, dest: Connection) -> str:
+        from aap_migration.api.services.cli_workflows import run_migration_cleanup
+
+        async def _runner(_source, dest_conn, db_url, log=None):
+            from aap_migration.api.services.cli_workflows import PhasedMigrationResult
+
+            result = await run_migration_cleanup(dest_conn, db_url, log=log)
+            if result.errors:
+                return PhasedMigrationResult(
+                    status="failed",
+                    message=f"Cleanup completed with {result.errors} errors",
+                )
+            return PhasedMigrationResult(status="completed")
+
+        return self._start_cli_pair_job(
+            "cleanup",
+            source,
+            dest,
+            label="Starting cleanup",
+            runner=_runner,
+        )
+
+    def start_export(
+        self,
+        source: Connection,
+        dest: Connection,
+        *,
+        force: bool = False,
+        resume: bool = False,
+    ) -> str:
+        from aap_migration.api.services.cli_workflows import run_migration_export
+
+        return self._start_cli_pair_job(
+            "migration-export",
+            source,
+            dest,
+            label="Starting export (all)",
+            runner=run_migration_export,
+            runner_kwargs={"force": force, "resume": resume},
+        )
+
+    def start_transform(
+        self,
+        source: Connection,
+        dest: Connection,
+        *,
+        force: bool = False,
+    ) -> str:
+        from aap_migration.api.services.cli_workflows import run_migration_transform
+
+        return self._start_cli_pair_job(
+            "migration-transform",
+            source,
+            dest,
+            label="Starting transform (all)",
+            runner=run_migration_transform,
+            runner_kwargs={"force": force},
+        )
+
+    def start_import(
+        self,
+        source: Connection,
+        dest: Connection,
+        *,
+        phase: str,
+        force: bool = False,
+        resume: bool = False,
+    ) -> str:
+        from aap_migration.api.services.cli_workflows import run_migration_import
+
+        phase_label = (
+            "Import Phase 1 (Base Resources)"
+            if phase == "phase1"
+            else "Import Phase 2 (Patch Projects + Automation)"
+        )
+        return self._start_cli_pair_job(
+            "migration-import",
+            source,
+            dest,
+            label=f"Starting {phase_label}",
+            runner=run_migration_import,
+            runner_kwargs={"phase": phase, "force": force, "resume": resume},
+        )
 
     def start_run(
         self,

@@ -55,10 +55,19 @@ async def discover_connection_resource_types(conn: Connection) -> list[dict[str,
 async def fetch_connection_resources(conn: Connection, resource_type: str) -> list[dict[str, Any]]:
     """Fetch all pages of a resource type from a saved connection."""
     async with connection_client(conn) as client:
-        if conn.role == "destination":
-            return await client.list_resources(resource_type, page_size=200)
-        endpoint = get_endpoint(resource_type)
-        return await client.get_paginated(endpoint, page_size=200)
+        return await fetch_resources_with_client(client, conn, resource_type)
+
+
+async def fetch_resources_with_client(
+    client: AAPClient,
+    conn: Connection,
+    resource_type: str,
+) -> list[dict[str, Any]]:
+    """Fetch all pages of a resource type using an existing client."""
+    if conn.role == "destination":
+        return await client.list_resources(resource_type, page_size=200)
+    endpoint = get_endpoint(resource_type)
+    return await client.get_paginated(endpoint, page_size=200)
 
 
 async def list_connection_resources(

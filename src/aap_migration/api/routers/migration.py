@@ -7,6 +7,8 @@ from aap_migration.api.schemas import (
     JobCreatedResponse,
     MigratePrepRequest,
     MigratePreviewRequest,
+    MigratePairRequest,
+    MigrateImportRequest,
     MigrateRunRequest,
     MigrationPreviewResponse,
 )
@@ -29,6 +31,17 @@ def _validate_migration_connections(source: Connection, dest: Connection) -> Non
         raise HTTPException(status_code=400, detail="Destination connection must have destination role")
 
 
+ACTIVE_JOB_TYPES = (
+    "migration-prep",
+    "migration-preview",
+    "migration-run",
+    "migration-export",
+    "migration-transform",
+    "migration-import",
+    "cleanup",
+)
+
+
 def _has_active_jobs(db: Session, job_types: tuple[str, ...]) -> bool:
     return (
         db.query(Job)
@@ -46,10 +59,10 @@ def start_prep(data: MigratePrepRequest, db: Session = Depends(get_db)) -> JobCr
     if not source or not dest:
         raise HTTPException(status_code=404, detail="Connection not found")
     _validate_migration_connections(source, dest)
-    if _has_active_jobs(db, ("migration-prep", "migration-run", "cleanup")):
+    if _has_active_jobs(db, ACTIVE_JOB_TYPES):
         raise HTTPException(
             status_code=409,
-            detail="Cannot start prep while another migration or cleanup job is active",
+            detail="Cannot start prep while another migration job is active",
         )
     state = get_app_state()
     from aap_migration.api.services.migration_service import MigrationService
@@ -95,10 +108,10 @@ def run_migration(data: MigrateRunRequest, db: Session = Depends(get_db)) -> Job
     if not source or not dest:
         raise HTTPException(status_code=404, detail="Connection not found")
     _validate_migration_connections(source, dest)
-    if _has_active_jobs(db, ("migration-prep", "migration-run", "cleanup")):
+    if _has_active_jobs(db, ACTIVE_JOB_TYPES):
         raise HTTPException(
             status_code=409,
-            detail="Cannot start a migration while another migration or cleanup job is active",
+            detail="Cannot start a migration while another migration job is active",
         )
     state = get_app_state()
     from aap_migration.api.services.migration_service import MigrationService
@@ -108,6 +121,80 @@ def run_migration(data: MigrateRunRequest, db: Session = Depends(get_db)) -> Job
         job_id = mig_svc.start_run(source, dest, data.job_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return JobCreatedResponse(job_id=job_id)
+
+
+@router.post("/migrate/cleanup", response_model=JobCreatedResponse)
+def start_cleanup(data: MigratePreviewRequest, db: Session = Depends(get_db)) -> JobCreatedResponse:
+    svc = ConnectionService(db)
+    source = svc.get(data.source_id)
+    dest = svc.get(data.destination_id)
+    if not source or not dest:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    _validate_migration_connections(source, dest)
+    if _has_active_jobs(db, ACTIVE_JOB_TYPES):
+        raise HTTPException(status_code=409, detail="Cannot start cleanup while another migration job is active")
+    state = get_app_state()
+    from aap_migration.api.services.migration_service import MigrationService
+
+    mig_svc = MigrationService(state.job_service, state.db_session_factory, state.loop)
+    job_id = mig_svc.start_cleanup(source, dest)
+    return JobCreatedResponse(job_id=job_id)
+
+
+@router.post("/migrate/export", response_model=JobCreatedResponse)
+def start_export(data: MigratePairRequest, db: Session = Depends(get_db)) -> JobCreatedResponse:
+    svc = ConnectionService(db)
+    source = svc.get(data.source_id)
+    dest = svc.get(data.destination_id)
+    if not source or not dest:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    _validate_migration_connections(source, dest)
+    if _has_active_jobs(db, ACTIVE_JOB_TYPES):
+        raise HTTPException(status_code=409, detail="Cannot start export while another migration job is active")
+    state = get_app_state()
+    from aap_migration.api.services.migration_service import MigrationService
+
+    mig_svc = MigrationService(state.job_service, state.db_session_factory, state.loop)
+    job_id = mig_svc.start_export(source, dest, force=data.force, resume=data.resume)
+    return JobCreatedResponse(job_id=job_id)
+
+
+@router.post("/migrate/transform", response_model=JobCreatedResponse)
+def start_transform(data: MigratePairRequest, db: Session = Depends(get_db)) -> JobCreatedResponse:
+    svc = ConnectionService(db)
+    source = svc.get(data.source_id)
+    dest = svc.get(data.destination_id)
+    if not source or not dest:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    _validate_migration_connections(source, dest)
+    if _has_active_jobs(db, ACTIVE_JOB_TYPES):
+        raise HTTPException(status_code=409, detail="Cannot start transform while another migration job is active")
+    state = get_app_state()
+    from aap_migration.api.services.migration_service import MigrationService
+
+    mig_svc = MigrationService(state.job_service, state.db_session_factory, state.loop)
+    job_id = mig_svc.start_transform(source, dest, force=data.force)
+    return JobCreatedResponse(job_id=job_id)
+
+
+@router.post("/migrate/import", response_model=JobCreatedResponse)
+def start_import(data: MigrateImportRequest, db: Session = Depends(get_db)) -> JobCreatedResponse:
+    svc = ConnectionService(db)
+    source = svc.get(data.source_id)
+    dest = svc.get(data.destination_id)
+    if not source or not dest:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    _validate_migration_connections(source, dest)
+    if _has_active_jobs(db, ACTIVE_JOB_TYPES):
+        raise HTTPException(status_code=409, detail="Cannot start import while another migration job is active")
+    state = get_app_state()
+    from aap_migration.api.services.migration_service import MigrationService
+
+    mig_svc = MigrationService(state.job_service, state.db_session_factory, state.loop)
+    job_id = mig_svc.start_import(
+        source, dest, phase=data.phase, force=data.force, resume=data.resume
+    )
     return JobCreatedResponse(job_id=job_id)
 
 

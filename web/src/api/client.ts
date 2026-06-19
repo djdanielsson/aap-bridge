@@ -81,6 +81,38 @@ export const api = {
       destination_id: destinationId,
       force,
     }),
+  migrationCleanup: (sourceId: string, destinationId: string) =>
+    request<{ job_id: string }>('POST', '/api/migrate/cleanup', {
+      source_id: sourceId,
+      destination_id: destinationId,
+    }),
+  migrationExport: (sourceId: string, destinationId: string, force = false, resume = false) =>
+    request<{ job_id: string }>('POST', '/api/migrate/export', {
+      source_id: sourceId,
+      destination_id: destinationId,
+      force,
+      resume,
+    }),
+  migrationTransform: (sourceId: string, destinationId: string, force = false) =>
+    request<{ job_id: string }>('POST', '/api/migrate/transform', {
+      source_id: sourceId,
+      destination_id: destinationId,
+      force,
+    }),
+  migrationImport: (
+    sourceId: string,
+    destinationId: string,
+    phase: 'phase1' | 'phase2',
+    force = false,
+    resume = false,
+  ) =>
+    request<{ job_id: string }>('POST', '/api/migrate/import', {
+      source_id: sourceId,
+      destination_id: destinationId,
+      phase,
+      force,
+      resume,
+    }),
   getMigrationPreview: (jobId: string) =>
     request<unknown>('GET', `/api/migrate/preview/${jobId}`),
   migrationRun: (sourceId: string, destinationId: string, previewJobId: string) =>

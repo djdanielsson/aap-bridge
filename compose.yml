@@ -92,29 +92,6 @@ services:
     working_dir: /app
     entrypoint: ["sleep", "infinity"]
 
-  engine-init:
-    image: registry.redhat.io/ubi9/ubi-minimal:latest
-    user: "0"
-    command:
-      - /bin/sh
-      - -ec
-      - |
-        mkdir -p /app/schemas /app/exports /app/reports
-        chown -R 998:998 /app/schemas /app/exports /app/reports
-        touch /tmp/ready
-        exec sleep infinity
-    security_opt:
-      - label=disable
-    volumes:
-      - ./exports:/app/exports
-      - ./reports:/app/reports
-      - ./schemas:/app/schemas
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/ready"]
-      interval: 2s
-      timeout: 2s
-      retries: 10
-
   engine:
     image: localhost/aap-bridge-api:latest
     build:
@@ -124,11 +101,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      engine-init:
-        condition: service_healthy
     env_file:
       - .env
     network_mode: host
+    userns_mode: "keep-id:uid=998,gid=998"
     environment:
       MIGRATION_STATE_DB_PATH: "postgresql://${POSTGRESQL_USER:-aap_migration_user}:${POSTGRESQL_PASSWORD:-redhat123!}@localhost:15432/${POSTGRESQL_DATABASE:-aap_migration}"
       AAP_BRIDGE_CONFIG: /app/config/config.yaml
