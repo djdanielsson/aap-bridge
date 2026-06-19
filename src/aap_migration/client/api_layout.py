@@ -5,9 +5,13 @@ introduces the platform gateway; shared resources (organizations, users, teams,
 RBAC, etc.) live under /api/gateway/v1/ while automation content remains under
 /api/controller/v2/.
 
-API topology is selected from the configured AAP version (SOURCE__VERSION /
-TARGET__VERSION), not from the API itself — older releases do not expose a
-reliable product version in API responses.
+API topology is selected from the configured AAP version, not from the API
+itself — older releases do not expose a reliable product version in API
+responses.
+
+- CLI and TUI: ``SOURCE__VERSION`` / ``TARGET__VERSION`` in ``.env`` (via
+  ``config/config.yaml``).
+- Web UI: per-connection ``version`` saved in the connections database.
 """
 
 from __future__ import annotations

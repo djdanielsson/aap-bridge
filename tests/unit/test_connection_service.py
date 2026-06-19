@@ -110,6 +110,7 @@ def test_create_preserves_explicit_api_prefix(db_session, monkeypatch: pytest.Mo
             name="AAP gateway",
             role="destination",
             url="https://localhost:20947/api/v2",
+            version="2.6",
             token="token",
             verify_ssl=False,
         )
@@ -128,6 +129,7 @@ def test_create_stores_encrypted_token(db_session, monkeypatch: pytest.MonkeyPat
             name="AAP gateway",
             role="destination",
             url="https://localhost:20947/api/v2",
+            version="2.6",
             token="token",
             verify_ssl=False,
         )
@@ -149,6 +151,7 @@ def test_update_clears_stale_discovery_metadata(db_session, monkeypatch: pytest.
             name="AAP gateway",
             role="destination",
             url="https://localhost:20947/api/controller/v2",
+            version="2.6",
             token="token",
             verify_ssl=False,
         )
@@ -170,7 +173,7 @@ def test_update_clears_stale_discovery_metadata(db_session, monkeypatch: pytest.
     assert updated is not None
     assert updated.url == "https://aap24.example.com"
     assert updated.api_prefix == "/api/v2"
-    assert updated.version is None
+    assert updated.version == "2.5"
     assert updated.ping_status == "unknown"
     assert updated.auth_status == "unknown"
     assert updated.last_checked is None
@@ -184,6 +187,7 @@ def test_update_preserves_masked_token(db_session, monkeypatch: pytest.MonkeyPat
             name="AAP gateway",
             role="destination",
             url="https://localhost:20947/api/controller/v2",
+            version="2.6",
             token="super-secret-token",
             verify_ssl=False,
         )
@@ -212,6 +216,7 @@ def test_update_encrypts_replaced_token(db_session, monkeypatch: pytest.MonkeyPa
             name="AAP gateway",
             role="destination",
             url="https://localhost:20947/api/controller/v2",
+            version="2.6",
             token="old-token",
             verify_ssl=False,
         )
@@ -321,6 +326,7 @@ def test_test_connection_uses_decrypted_token(db_session, monkeypatch: pytest.Mo
         url="https://localhost:20947",
         token=encrypt_token("token"),
         verify_ssl=False,
+        version="2.6",
         api_prefix="/api/controller/v2",
     )
     auth_headers: list[dict[str, str]] = []
@@ -339,3 +345,34 @@ def test_test_connection_uses_decrypted_token(db_session, monkeypatch: pytest.Mo
 
     assert result.ok is True
     assert auth_headers == [{"Authorization": "Bearer token"}]
+
+
+def test_test_connection_preserves_configured_version(db_session, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv(TOKEN_ENCRYPTION_KEY_ENV, Fernet.generate_key().decode())
+    service = ConnectionService(db_session)
+    conn = Connection(
+        name="AAP legacy",
+        type="aap",
+        role="source",
+        url="https://awx.example.com",
+        token=encrypt_token("token"),
+        verify_ssl=False,
+        version="2.4",
+        api_prefix="/api/v2",
+    )
+    db_session.add(conn)
+    db_session.commit()
+
+    def fake_get(url: str, **kwargs) -> DummyResponse:
+        if url.endswith("/ping/"):
+            return DummyResponse(200, {})
+        if url.endswith("/me/"):
+            return DummyResponse(200, {})
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr("aap_migration.api.services.connection_service.httpx.get", fake_get)
+
+    result = service.test_connection(conn)
+
+    assert result.ok is True
+    assert conn.version == "2.4"

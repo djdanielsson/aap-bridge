@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from aap_migration.api.models import Connection
+from aap_migration.config import normalize_aap_version
+from aap_migration.resources import SUPPORTED_SOURCE_VERSIONS, SUPPORTED_TARGET_VERSIONS
 from aap_migration.client.api_layout import (
     CONTROLLER_API_PREFIX,
     GATEWAY_API_PREFIX,
@@ -29,6 +31,18 @@ def split_connection_url(url: str) -> tuple[str, str | None]:
 def normalize_connection_url(url: str) -> str:
     """Normalize a connection URL to scheme + host (no API path suffix)."""
     return normalize_host_url(url.strip())
+
+
+def validate_connection_version(role: str, version: str) -> str:
+    """Normalize and validate an AAP version for a Web UI connection role."""
+    normalized = normalize_aap_version(version)
+    allowed = SUPPORTED_SOURCE_VERSIONS if role == "source" else SUPPORTED_TARGET_VERSIONS
+    if normalized not in allowed:
+        raise ValueError(
+            f"Invalid AAP version '{version}' for role '{role}'. "
+            f"Valid versions: {', '.join(allowed)}"
+        )
+    return normalized
 
 
 def resolve_connection_version(conn: Connection) -> str:

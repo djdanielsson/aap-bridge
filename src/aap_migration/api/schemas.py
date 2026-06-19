@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from aap_migration.config import normalize_aap_version
+
 
 def _validate_connection_url(url: str) -> str:
     normalized = url.strip()
@@ -17,6 +19,7 @@ class ConnectionCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     role: Literal["source", "destination"]
     url: str = Field(..., min_length=1, max_length=512)
+    version: str = Field(..., min_length=1, max_length=32)
     token: str | None = None
     verify_ssl: bool = True
 
@@ -25,11 +28,17 @@ class ConnectionCreate(BaseModel):
     def validate_url(cls, value: str) -> str:
         return _validate_connection_url(value)
 
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        return normalize_aap_version(value)
+
 
 class ConnectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     role: Literal["source", "destination"] | None = None
     url: str | None = Field(default=None, min_length=1, max_length=512)
+    version: str | None = Field(default=None, min_length=1, max_length=32)
     token: str | None = None
     verify_ssl: bool | None = None
 
@@ -39,6 +48,13 @@ class ConnectionUpdate(BaseModel):
         if value is None:
             return None
         return _validate_connection_url(value)
+
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_aap_version(value)
 
 class ConnectionResponse(BaseModel):
     id: str
@@ -130,3 +146,8 @@ class MigrationPreviewResponse(BaseModel):
 
 class JobCreatedResponse(BaseModel):
     job_id: str
+
+
+class VersionsResponse(BaseModel):
+    source_versions: list[str]
+    target_versions: list[str]

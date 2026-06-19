@@ -52,6 +52,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   createConnection: (conn: unknown) => request<unknown>('POST', '/api/connections', conn),
   listConnections: () => request<unknown[]>('GET', '/api/connections'),
+  getSupportedVersions: () => request<{ source_versions: string[]; target_versions: string[] }>('GET', '/api/versions'),
   updateConnection: (id: string, conn: unknown) => request<unknown>('PUT', `/api/connections/${id}`, conn),
   deleteConnection: (id: string) => request<void>('DELETE', `/api/connections/${id}`),
   testConnection: (id: string) => request<{ ok: boolean; error?: string }>('POST', `/api/connections/${id}/test`),

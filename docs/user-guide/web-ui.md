@@ -50,7 +50,11 @@ Manage AAP instance connections. Each connection stores:
 
 - **Name** - Friendly label
 - **Role** - Source (migrate from) or Destination (migrate to)
-- **URL** - Full instance URL (e.g., `https://aap.example.com`)
+- **AAP Version** - Required; selects API routing for this instance. Older
+  releases do not expose a reliable version from the API, so you choose it
+  explicitly here. This replaces ``SOURCE__VERSION`` / ``TARGET__VERSION`` for
+  Web UI workflows; the CLI and TUI still read those variables from ``.env``.
+- **URL** - Gateway root URL (e.g., `https://aap.example.com`)
 - **Token** - API authentication token
 - **Verify SSL** - Whether to verify TLS certificates
 
@@ -61,8 +65,9 @@ remain readable until that connection is edited and saved again.
 Use the **Test** button to verify connectivity. This checks:
 
 1. Ping (unauthenticated `/ping/` endpoint)
-2. Auth (authenticated `/me/` endpoint)
-3. Version detection
+2. Auth (authenticated `/me/` endpoint, using the configured AAP version for API routing)
+
+Test does not detect or change the configured version.
 
 ### Operations
 
@@ -110,6 +115,7 @@ The API server exposes these endpoints:
 | --- | --- | --- |
 | POST | `/api/connections` | Create connection |
 | GET | `/api/connections` | List connections |
+| GET | `/api/versions` | List supported source/target AAP versions |
 | PUT | `/api/connections/{id}` | Update connection |
 | DELETE | `/api/connections/{id}` | Delete connection |
 | POST | `/api/connections/{id}/test` | Test connectivity |

@@ -8,9 +8,11 @@ from aap_migration.api.schemas import (
     ConnectionResponse,
     ConnectionUpdate,
     TestResult,
+    VersionsResponse,
 )
 from aap_migration.api.services.connection_service import ConnectionService
 from aap_migration.api.services.token_crypto import TokenCryptoError
+from aap_migration.resources import SUPPORTED_SOURCE_VERSIONS, SUPPORTED_TARGET_VERSIONS
 
 router = APIRouter(tags=["connections"])
 
@@ -32,6 +34,14 @@ def create_connection(data: ConnectionCreate, db: Session = Depends(get_db)) -> 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _mask_token(conn)
+
+
+@router.get("/versions", response_model=VersionsResponse)
+def list_supported_versions() -> VersionsResponse:
+    return VersionsResponse(
+        source_versions=list(SUPPORTED_SOURCE_VERSIONS),
+        target_versions=list(SUPPORTED_TARGET_VERSIONS),
+    )
 
 
 @router.get("/connections", response_model=list[ConnectionResponse])

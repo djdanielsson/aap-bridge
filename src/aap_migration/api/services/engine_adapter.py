@@ -13,10 +13,11 @@ from aap_migration.config import (
 
 
 def connection_to_aap_config(conn: Connection) -> AAPInstanceConfig:
+    """Map a saved Web UI connection to runtime AAP instance settings."""
     if not conn.version or not conn.version.strip():
         raise ValueError(
             f"Connection '{conn.name}' has no AAP version. "
-            "Test the connection first to discover the version."
+            "Set the AAP version on the connection."
         )
 
     return AAPInstanceConfig(
@@ -29,7 +30,13 @@ def connection_to_aap_config(conn: Connection) -> AAPInstanceConfig:
 
 
 def load_runtime_config(source: Connection, dest: Connection, db_url: str) -> MigrationConfig:
-    """Build MigrationConfig from yaml tuning settings and saved web connections."""
+    """Build ``MigrationConfig`` for Web UI workflows.
+
+    Instance URLs, tokens, and AAP versions come from saved connections, not
+    from ``SOURCE__*`` / ``TARGET__*`` in ``.env``. Export/transform tuning and
+    other non-instance settings are still loaded from ``AAP_BRIDGE_CONFIG`` when
+    set. CLI and TUI commands continue to use ``load_config_from_yaml`` instead.
+    """
     tuning: dict = {}
     config_path = os.environ.get("AAP_BRIDGE_CONFIG")
     if config_path:

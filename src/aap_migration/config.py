@@ -879,7 +879,10 @@ def resolve_config_path(config: str | Path | None = None) -> Path | None:
 
 
 def load_config_from_yaml(config_path: str | Path) -> MigrationConfig:
-    """Load configuration from YAML file.
+    """Load configuration for CLI and TUI workflows from YAML and ``.env``.
+
+    Source and target URLs, tokens, and versions come from ``SOURCE__*`` and
+    ``TARGET__*`` environment variables referenced in ``config/config.yaml``.
 
     Args:
         config_path: Path to YAML configuration file
@@ -912,10 +915,11 @@ def load_config_from_yaml(config_path: str | Path) -> MigrationConfig:
 
 
 def load_config_tuning_from_yaml(config_path: str | Path) -> dict:
-    """Load non-instance settings from a YAML configuration file.
+    """Load non-instance settings from a YAML configuration file (Web UI).
 
-    Source and target blocks are removed so callers can supply instance
-    credentials from saved web connections or other runtime sources.
+    Source and target blocks are removed so the Web UI can supply instance
+    URLs, tokens, and versions from saved connections instead of ``SOURCE__*``
+    / ``TARGET__*`` environment variables.
 
     Args:
         config_path: Path to YAML configuration file

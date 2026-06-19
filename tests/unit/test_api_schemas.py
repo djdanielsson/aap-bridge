@@ -10,6 +10,7 @@ def test_connection_create_requires_https_url():
             name="Source",
             role="source",
             url="http://aap.example.com",
+            version="2.4",
             token="token",
         )
 
@@ -30,12 +31,14 @@ def test_connection_create_accepts_source_or_destination_role():
         name="Source",
         role="source",
         url="https://aap.example.com",
+        version="2.4",
         token="token",
     )
     destination = ConnectionCreate(
         name="Destination",
         role="destination",
         url="https://aap26.example.com",
+        version="2.6",
         token="token",
     )
 

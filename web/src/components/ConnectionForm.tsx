@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -14,9 +14,23 @@ import {
   Checkbox,
   Button,
 } from '@patternfly/react-core';
-import type { Connection, ConnectionPayload } from '../types/connection';
+import { api } from '../api/client';
+import type { Connection, ConnectionPayload, SupportedVersions } from '../types/connection';
 
 const MASKED_TOKEN = '********';
+const DEFAULT_SOURCE_VERSION = '2.4';
+const DEFAULT_TARGET_VERSION = '2.6';
+
+function defaultVersionForRole(role: 'source' | 'destination', versions: SupportedVersions | null): string {
+  if (!versions) {
+    return role === 'destination' ? DEFAULT_TARGET_VERSION : DEFAULT_SOURCE_VERSION;
+  }
+  const options = role === 'destination' ? versions.target_versions : versions.source_versions;
+  if (role === 'destination') {
+    return options.includes(DEFAULT_TARGET_VERSION) ? DEFAULT_TARGET_VERSION : options[options.length - 1];
+  }
+  return options.includes(DEFAULT_SOURCE_VERSION) ? DEFAULT_SOURCE_VERSION : options[options.length - 1];
+}
 
 interface Props {
   isOpen: boolean;
@@ -31,11 +45,39 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
   const [url, setUrl] = useState(initial?.url || '');
   const [token, setToken] = useState('');
   const [verifySsl, setVerifySsl] = useState(initial?.verify_ssl ?? true);
+  const [versions, setVersions] = useState<SupportedVersions | null>(null);
+  const [version, setVersion] = useState(initial?.version || DEFAULT_SOURCE_VERSION);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
+  useEffect(() => {
+    if (!isOpen) return;
+    void api.getSupportedVersions().then(setVersions).catch(() => setVersions(null));
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!versions) return;
+    const options = role === 'destination' ? versions.target_versions : versions.source_versions;
+    if (!options.includes(version)) {
+      setVersion(defaultVersionForRole(role, versions));
+    }
+  }, [versions, role, version]);
+
+  const handleRoleChange = (newRole: 'source' | 'destination') => {
+    setRole(newRole);
+    if (!versions) return;
+    const options = newRole === 'destination' ? versions.target_versions : versions.source_versions;
+    if (!options.includes(version)) {
+      setVersion(defaultVersionForRole(newRole, versions));
+    }
+  };
+
+  const versionOptions = versions
+    ? (role === 'destination' ? versions.target_versions : versions.source_versions)
+    : [];
+
   const handleSubmit = async () => {
-    const payload: ConnectionPayload = { name, role, url, verify_ssl: verifySsl };
+    const payload: ConnectionPayload = { name, role, url, version, verify_ssl: verifySsl };
     const trimmedToken = token.trim();
     if (!initial?.id || (trimmedToken && trimmedToken !== MASKED_TOKEN)) {
       payload.token = trimmedToken;
@@ -70,7 +112,7 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
           <TextInput id="name" value={name} onChange={(_e, v) => setName(v)} placeholder="My AAP Instance" />
         </FormGroup>
         <FormGroup label="Role" fieldId="role">
-          <FormSelect id="role" value={role} onChange={(_e, v) => setRole(v as 'source' | 'destination')}>
+          <FormSelect id="role" value={role} onChange={(_e, v) => handleRoleChange(v as 'source' | 'destination')}>
             <FormSelectOption value="source" label="Source (migrate FROM)" />
             <FormSelectOption value="destination" label="Destination (migrate TO)" />
           </FormSelect>
@@ -78,6 +120,25 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
             <HelperText>
               <HelperTextItem>
                 Source is the older AAP instance; destination is typically AAP 2.5+.
+              </HelperTextItem>
+            </HelperText>
+          </FormHelperText>
+        </FormGroup>
+        <FormGroup label="AAP Version" isRequired fieldId="version">
+          <FormSelect
+            id="version"
+            value={version}
+            onChange={(_e, v) => setVersion(v)}
+            isDisabled={versionOptions.length === 0}
+          >
+            {versionOptions.map((v) => (
+              <FormSelectOption key={v} value={v} label={v} />
+            ))}
+          </FormSelect>
+          <FormHelperText>
+            <HelperText>
+              <HelperTextItem>
+                Select the AAP version for API routing. Older releases do not expose a reliable version from the API.
               </HelperTextItem>
             </HelperText>
           </FormHelperText>

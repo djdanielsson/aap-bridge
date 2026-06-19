@@ -11,6 +11,7 @@ from aap_migration.api.services.connection_layout import (
     ping_probe_candidates,
     resolve_connection_version,
     split_connection_url,
+    validate_connection_version,
 )
 
 __all__ = [
@@ -32,6 +33,7 @@ class ConnectionService:
 
     def create(self, data: ConnectionCreate) -> Connection:
         normalized_url, api_prefix = split_connection_url(data.url)
+        version = validate_connection_version(data.role, data.version)
         conn = Connection(
             name=data.name,
             type=CONNECTION_TYPE_AAP,
@@ -40,6 +42,7 @@ class ConnectionService:
             token=encrypt_token(data.token),
             verify_ssl=data.verify_ssl,
             api_prefix=api_prefix,
+            version=version,
         )
         self.db.add(conn)
         self.db.commit()
@@ -75,7 +78,6 @@ class ConnectionService:
         if discovery_needs_reset:
             update_data.update(
                 {
-                    "version": None,
                     "ping_status": "unknown",
                     "ping_error": None,
                     "auth_status": "unknown",
@@ -83,6 +85,12 @@ class ConnectionService:
                     "last_checked": None,
                 }
             )
+
+        role = update_data.get("role", conn.role)
+        if "version" in update_data and update_data["version"] is not None:
+            update_data["version"] = validate_connection_version(role, update_data["version"])
+        elif "role" in update_data and conn.version:
+            update_data["version"] = validate_connection_version(role, conn.version)
         for key, value in update_data.items():
             setattr(conn, key, value)
         self.db.commit()
@@ -102,9 +110,16 @@ class ConnectionService:
         auth_status = "error"
         ping_error = None
         auth_error = None
-        version = None
+        detected_version = None
         api_prefix = None
         bearer_token = self.get_token(conn)
+        configured_version = conn.version
+        if configured_version:
+            try:
+                major, minor = parse_aap_major_minor(configured_version)
+                configured_version = f"{major}.{minor}"
+            except ValueError:
+                pass
 
         for ping_url, prefix in ping_probe_candidates(conn):
             try:
@@ -117,23 +132,23 @@ class ConnectionService:
                     ping_status = "ok"
                     api_prefix = prefix
                     data = resp.json()
-                    version = data.get("version", data.get("active_node", None))
+                    detected_version = data.get("version", data.get("active_node", None))
                     break
                 ping_error = f"HTTP {resp.status_code}"
             except Exception as e:
                 ping_error = str(e)
 
         if ping_status == "ok" and api_prefix is not None:
-            stored_version = version
-            if stored_version:
+            probe_version = configured_version or resolve_connection_version(conn)
+            if detected_version:
                 try:
-                    major, minor = parse_aap_major_minor(stored_version)
-                    stored_version = f"{major}.{minor}"
+                    major, minor = parse_aap_major_minor(detected_version)
+                    detected_version = f"{major}.{minor}"
                 except ValueError:
                     pass
             try:
                 resp = httpx.get(
-                    me_probe_url(conn, stored_version),
+                    me_probe_url(conn, probe_version),
                     headers={"Authorization": f"Bearer {bearer_token}"},
                     verify=conn.verify_ssl,
                     timeout=10,
@@ -146,20 +161,10 @@ class ConnectionService:
             except Exception as e:
                 auth_error = str(e)
 
-        if ping_status == "ok" and version:
-            try:
-                major, minor = parse_aap_major_minor(version)
-                version = f"{major}.{minor}"
-            except ValueError:
-                pass
-        elif ping_status == "ok":
-            version = resolve_connection_version(conn)
-
         conn.ping_status = ping_status
         conn.ping_error = ping_error
         conn.auth_status = auth_status
         conn.auth_error = auth_error
-        conn.version = version
         conn.api_prefix = api_prefix
         conn.last_checked = datetime.now(UTC)
         self.db.commit()
@@ -169,7 +174,7 @@ class ConnectionService:
             ok=(ping_status == "ok" and auth_status == "ok"),
             ping_status=ping_status,
             auth_status=auth_status,
-            version=version,
+            version=conn.version,
             api_prefix=api_prefix,
             error=error,
         )
