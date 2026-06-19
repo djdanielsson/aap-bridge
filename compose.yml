@@ -92,6 +92,29 @@ services:
     working_dir: /app
     entrypoint: ["sleep", "infinity"]
 
+  engine-init:
+    image: localhost/aap-bridge-api:latest
+    user: "0"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        mkdir -p /app/schemas /app/exports /app/reports
+        chown -R bridge:bridge /app/schemas /app/exports /app/reports
+        touch /tmp/ready
+        exec sleep infinity
+    security_opt:
+      - label=disable
+    volumes:
+      - ./exports:/app/exports
+      - ./reports:/app/reports
+      - ./schemas:/app/schemas
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
   engine:
     image: localhost/aap-bridge-api:latest
     build:
@@ -100,6 +123,8 @@ services:
       target: api
     depends_on:
       db:
+        condition: service_healthy
+      engine-init:
         condition: service_healthy
     env_file:
       - .env
