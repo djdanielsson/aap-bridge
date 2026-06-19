@@ -93,14 +93,14 @@ services:
     entrypoint: ["sleep", "infinity"]
 
   engine-init:
-    image: localhost/aap-bridge-api:latest
+    image: registry.redhat.io/ubi9/ubi-minimal:latest
     user: "0"
     command:
       - /bin/sh
       - -ec
       - |
         mkdir -p /app/schemas /app/exports /app/reports
-        chown -R bridge:bridge /app/schemas /app/exports /app/reports
+        chown -R 998:998 /app/schemas /app/exports /app/reports
         touch /tmp/ready
         exec sleep infinity
     security_opt:
