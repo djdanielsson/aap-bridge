@@ -85,11 +85,18 @@ async def run_prep_workflow(
                 f"Unknown migration path {source_version} → {target_version}; proceeding (--force).",
             )
         elif version_path.status == "partial":
-            _log(log, f"Partial support for {source_version} → {target_version}")
+            _log(log, f"⚠ Partial support for {source_version} → {target_version}")
             if version_path.notes:
                 _log(log, f"  {version_path.notes}")
         else:
             _log(log, f"Migration path {source_version} → {target_version}: fully supported")
+            if version_path.notes:
+                _log(log, f"  {version_path.notes}")
+
+        if version_path is not None and version_path.known_exceptions:
+            _log(log, "Known exceptions for this migration path:")
+            for exc in version_path.known_exceptions:
+                _log(log, f"  ⚠ {exc}")
 
         common_ignored = ctx.config.ignored_endpoints.get("common", [])
         source_ignored = common_ignored + ctx.config.ignored_endpoints.get("source", [])
