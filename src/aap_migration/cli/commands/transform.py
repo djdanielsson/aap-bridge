@@ -65,6 +65,67 @@ def sort_by_transform_order(resource_types: list[str]) -> list[str]:
     return [rtype for rtype, _ in known] + unknown
 
 
+async def seed_skipped_execution_environments(
+    ctx: MigrationContext, state: MigrationState
+) -> int:
+    """Seed id_mappings for execution environments that are skipped during export.
+
+    Built-in EEs (Control Plane, Default, Hub, etc.) are omitted from the
+    export to avoid overwriting target defaults, but projects reference them by
+    source ID. Without a mapping these show up as unresolved_dependency warnings
+    during import. This function looks each skipped EE up by name on the target
+    and records source_id → target_id so the import can resolve them.
+
+    Returns:
+        Number of EE mappings seeded.
+    """
+    raw = ctx.config.export.skip_execution_environment_names or []
+    skip_names = frozenset(n.strip().casefold() for n in raw if n.strip())
+    if not skip_names:
+        return 0
+
+    source_ees: dict[str, int] = {}
+    for ee in await ctx.source_client.get_execution_environments():
+        name = str(ee.get("name", "")).strip()
+        if name.casefold() in skip_names:
+            source_ees[name] = ee["id"]
+
+    if not source_ees:
+        return 0
+
+    target_ees: dict[str, int] = {}
+    for ee in await ctx.target_client.list_resources("execution_environments"):
+        name = str(ee.get("name", "")).strip()
+        target_ees[name.casefold()] = ee["id"]
+
+    seeded = 0
+    for name, source_id in source_ees.items():
+        target_id = target_ees.get(name.casefold())
+        if target_id:
+            state.mark_completed(
+                resource_type="execution_environments",
+                source_id=source_id,
+                target_id=target_id,
+                target_name=name,
+                source_name=name,
+            )
+            seeded += 1
+            logger.debug(
+                "seeded_skipped_execution_environment",
+                name=name,
+                source_id=source_id,
+                target_id=target_id,
+            )
+        else:
+            logger.warning(
+                "skipped_ee_not_found_in_target",
+                name=name,
+                source_id=source_id,
+            )
+
+    return seeded
+
+
 async def seed_builtin_credential_types(ctx: MigrationContext, state: MigrationState) -> int:
     """Seed id_mappings with built-in credential types from source and target AAP.
 
@@ -402,6 +463,19 @@ def transform(
                         message="Could not seed credential types - continuing without",
                     )
 
+            # Seed skipped execution environment mappings so projects that
+            # reference those EEs by source ID can resolve them during import.
+            try:
+                state = ctx.migration_state
+                seeded_ees = await seed_skipped_execution_environments(ctx, state)
+                logger.info("seeded_execution_environment_mappings", count=seeded_ees)
+            except Exception as e:
+                logger.warning(
+                    "seed_execution_environments_skipped",
+                    error=str(e),
+                    message="Could not seed execution environment mappings - continuing without",
+                )
+
             # Build phases for progress display
             phases = []
             for rtype in types_to_transform:
@@ -416,8 +490,10 @@ def transform(
             # Use Live progress display
             progress_enabled = not quiet and not disable_progress
 
+            src_ver = ctx.config.source.version or "source"
+            tgt_ver = ctx.config.target.version or "target"
             with MigrationProgressDisplay(
-                title="🔄 AAP Transform Progress (2.3 → 2.6)", enabled=progress_enabled
+                title=f"🔄 AAP Transform Progress ({src_ver} → {tgt_ver})", enabled=progress_enabled
             ) as progress:
                 if progress_enabled:
                     # Set total phases BEFORE initialize_phases to avoid jitter
