@@ -1,6 +1,5 @@
 const BASE = '';
 
-
 function formatErrorValue(value: unknown, fallback: string): string {
   if (typeof value === 'string' && value) return value;
   if (value === null || value === undefined) return fallback;

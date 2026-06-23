@@ -18,11 +18,12 @@ import {
   DescriptionListTerm,
   DescriptionListDescription,
   Alert,
+  Divider,
 } from '@patternfly/react-core';
 import { Dropdown, DropdownItem, KebabToggle } from '@patternfly/react-core/deprecated';
 import { api } from '../api/client';
 import { ConnectionForm } from '../components/ConnectionForm';
-import type { Connection, ConnectionPayload } from '../types/connection';
+import type { Connection } from '../types/connection';
 
 export function Dashboard() {
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -30,41 +31,43 @@ export function Dashboard() {
   const [editConn, setEditConn] = useState<Connection | null>(null);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [clearMsg, setClearMsg] = useState('');
 
   const loadConnections = useCallback(async () => {
-    const conns = await api.listConnections() as Connection[];
-    setConnections(conns);
+    try {
+      const conns = await api.listConnections() as Connection[];
+      setConnections(conns);
+    } catch (err) {
+      console.error('Failed to load connections:', err);
+    }
   }, []);
 
   useEffect(() => { loadConnections(); }, [loadConnections]);
 
-  const handleSave = async (conn: ConnectionPayload) => {
-    if (editConn) {
-      await api.updateConnection(editConn.id, conn);
-    } else {
-      await api.createConnection(conn);
+  const handleSave = async (conn: Omit<Connection, 'id'>) => {
+    setSaveError(null);
+    try {
+      if (editConn) {
+        await api.updateConnection(editConn.id, conn);
+      } else {
+        await api.createConnection(conn);
+      }
+      setShowForm(false);
+      setEditConn(null);
+      loadConnections();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save connection';
+      setSaveError(message);
     }
-    setShowForm(false);
-    setEditConn(null);
-    loadConnections();
   };
 
   const handleDelete = async (id: string) => {
-    const conn = connections.find(c => c.id === id);
-    if (!conn) return;
-    const confirmed = window.confirm(
-      `Delete connection "${conn.name}"? This removes the saved endpoint and token.`
-    );
-    if (!confirmed) return;
-
-    setDeleting(id);
+    setConnections(prev => prev.filter(c => c.id !== id));
     try {
       await api.deleteConnection(id);
-      loadConnections();
-    } finally {
-      setDeleting(null);
-    }
+    } catch { /* already removed from UI */ }
+    loadConnections();
   };
 
   const handleTest = async (id: string) => {
@@ -125,8 +128,8 @@ export function Dashboard() {
             <Split hasGutter>
               <SplitItem>{conn.name}</SplitItem>
               <SplitItem>
-                <Label color="blue">
-                  {conn.role === 'source' ? 'Source' : 'Destination'}{conn.version ? ` v${conn.version}` : ''}
+                <Label color="purple">
+                  AAP{conn.version ? ` v${conn.version}` : ''}
                 </Label>
               </SplitItem>
               <SplitItem>{pingLabel(conn)}</SplitItem>
@@ -162,7 +165,7 @@ export function Dashboard() {
             size="sm"
             onClick={() => handleTest(conn.id)}
             isLoading={testing === conn.id}
-            isDisabled={testing === conn.id || deleting === conn.id}
+            isDisabled={testing === conn.id}
           >
             {testing === conn.id ? 'Testing...' : 'Test'}
           </Button>
@@ -173,10 +176,12 @@ export function Dashboard() {
 
   return (
     <>
-      <Title headingLevel="h1" size="2xl">Connections</Title>
+      <Title headingLevel="h1" size="2xl">Settings</Title>
       <TextContent style={{ marginBottom: 16 }}>
-        <Text>Manage your AAP instance connections.</Text>
+        <Text>Configure connections and application settings.</Text>
       </TextContent>
+
+      <Title headingLevel="h2" size="xl" style={{ marginTop: 8, marginBottom: 8 }}>Connections</Title>
       <Button variant="primary" onClick={() => { setEditConn(null); setShowForm(true); }} style={{ marginBottom: 16 }}>
         Add Connection
       </Button>
@@ -203,12 +208,42 @@ export function Dashboard() {
         </>
       )}
 
+      <Divider style={{ marginTop: 32, marginBottom: 24 }} />
+
+      <Title headingLevel="h2" size="xl" style={{ marginBottom: 8 }}>Migration State</Title>
+      <TextContent style={{ marginBottom: 16 }}>
+        <Text>Clear all stored ID mappings and progress records. This forces the next migration run to re-create all resources instead of skipping previously migrated ones.</Text>
+      </TextContent>
+      <Button
+        variant="warning"
+        onClick={async () => {
+          setClearMsg('');
+          try {
+            const result = await api.clearMigrationState();
+            setClearMsg(`Cleared ${result.cleared_progress} progress records and ${result.deleted_mappings} ID mappings`);
+          } catch (err) {
+            setClearMsg(`Error: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }}
+      >
+        Clear Migration State
+      </Button>
+      {clearMsg && (
+        <Alert
+          variant={clearMsg.startsWith('Error') ? 'danger' : 'success'}
+          isInline
+          title={clearMsg}
+          style={{ marginTop: 12 }}
+        />
+      )}
+
       <ConnectionForm
         key={editConn?.id || 'new'}
         isOpen={showForm}
         initial={editConn || undefined}
         onSave={handleSave}
-        onClose={() => { setShowForm(false); setEditConn(null); }}
+        onClose={() => { setShowForm(false); setEditConn(null); setSaveError(null); }}
+        error={saveError}
       />
     </>
   );

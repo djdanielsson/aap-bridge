@@ -1,6 +1,5 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  Pagination,
   SearchInput,
   Toolbar,
   ToolbarItem,
@@ -10,23 +9,11 @@ import { Table, Thead, Tbody, Tr, Th, Td } from '@patternfly/react-table';
 
 interface Props {
   resources: Record<string, unknown>[];
-  totalCount: number;
-  page: number;
-  pageSize: number;
-  search: string;
-  onSearchChange: (value: string) => void;
-  onPageChange: (page: number, pageSize: number) => void;
 }
 
-export function ResourceTable({
-  resources,
-  totalCount,
-  page,
-  pageSize,
-  search,
-  onSearchChange,
-  onPageChange,
-}: Props) {
+export function ResourceTable({ resources }: Props) {
+  const [filter, setFilter] = useState('');
+
   const columns = useMemo(() => {
     if (resources.length === 0) return [];
     const keys = Object.keys(resources[0]);
@@ -36,6 +23,15 @@ export function ResourceTable({
     return [...sorted, ...rest].slice(0, 8);
   }, [resources]);
 
+  const filtered = useMemo(() => {
+    if (!filter) return resources;
+    const lower = filter.toLowerCase();
+    return resources.filter(r => {
+      const name = String(r['name'] || r['username'] || '').toLowerCase();
+      return name.includes(lower);
+    });
+  }, [resources, filter]);
+
   return (
     <>
       <Toolbar>
@@ -43,23 +39,13 @@ export function ResourceTable({
           <ToolbarItem>
             <SearchInput
               placeholder="Filter by name..."
-              value={search}
-              onChange={(_e, v) => onSearchChange(v)}
-              onClear={() => onSearchChange('')}
+              value={filter}
+              onChange={(_e, v) => setFilter(v)}
+              onClear={() => setFilter('')}
             />
           </ToolbarItem>
           <ToolbarItem align={{ default: 'alignRight' }}>
-            <Pagination
-              itemCount={totalCount}
-              page={page}
-              perPage={pageSize}
-              variant="top"
-              isCompact
-              onSetPage={(_event, nextPage) => onPageChange(nextPage, pageSize)}
-              onPerPageSelect={(_event, nextPageSize, nextPage) =>
-                onPageChange(nextPage, nextPageSize)
-              }
-            />
+            {filtered.length} of {resources.length} items
           </ToolbarItem>
         </ToolbarContent>
       </Toolbar>
@@ -72,8 +58,8 @@ export function ResourceTable({
           </Tr>
         </Thead>
         <Tbody>
-          {resources.map((res, i) => (
-            <Tr key={String(res.id ?? i)}>
+          {filtered.map((res, i) => (
+            <Tr key={i}>
               {columns.map(col => (
                 <Td key={col}>{formatCell(res[col])}</Td>
               ))}

@@ -5,17 +5,19 @@ import {
   Button,
 } from '@patternfly/react-core';
 import { Table, Thead, Tbody, Tr, Th, Td } from '@patternfly/react-table';
-import { LogViewer } from '../components/LogViewer';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Job } from '../types/resources';
 
 export function Jobs() {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [selectedJob, setSelectedJob] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const loadJobs = useCallback(async () => {
-    const data = await api.listJobs();
-    setJobs(data as Job[]);
+    try {
+      const data = await api.listJobs();
+      setJobs(data as Job[]);
+    } catch { /* API may be restarting */ }
   }, []);
 
   useEffect(() => {
@@ -26,9 +28,11 @@ export function Jobs() {
 
   const statusColor = (status: string) => {
     switch (status) {
+      case 'pending': return 'grey';
       case 'running': return 'blue';
       case 'completed': return 'green';
       case 'failed': return 'red';
+      case 'cancelled': return 'orange';
       default: return 'grey';
     }
   };
@@ -53,6 +57,8 @@ export function Jobs() {
       <Table aria-label="Jobs" variant="compact">
         <Thead>
           <Tr>
+            <Th width={10}>#</Th>
+            <Th>Name</Th>
             <Th>Type</Th>
             <Th>Status</Th>
             <Th>Started</Th>
@@ -62,7 +68,14 @@ export function Jobs() {
         </Thead>
         <Tbody>
           {jobs.map(job => (
-            <Tr key={job.id}>
+            <Tr
+              key={job.id}
+              isClickable
+              onRowClick={() => navigate(`/jobs/${job.id}`)}
+              style={{ cursor: 'pointer' }}
+            >
+              <Td><strong>{job.seq_id ?? '—'}</strong></Td>
+              <Td>{job.name || job.type}</Td>
               <Td>{job.type}</Td>
               <Td>
                 <Label color={statusColor(job.status)}>{job.status}</Label>
@@ -70,26 +83,19 @@ export function Jobs() {
               <Td>{formatTime(job.started_at)}</Td>
               <Td>{formatDuration(job)}</Td>
               <Td>
-                <Button variant="link" onClick={() => setSelectedJob(job.id)}>
-                  View Logs
+                <Button variant="link" onClick={(e) => { e.stopPropagation(); navigate(`/jobs/${job.id}`); }}>
+                  View
                 </Button>
               </Td>
             </Tr>
           ))}
           {jobs.length === 0 && (
             <Tr>
-              <Td colSpan={5}>No jobs yet. Run a migration phase from the Migrate page.</Td>
+              <Td colSpan={7}>No jobs yet. Start a migration to see jobs here.</Td>
             </Tr>
           )}
         </Tbody>
       </Table>
-
-      {selectedJob && (
-        <div style={{ marginTop: 24 }}>
-          <Title headingLevel="h3">Job Logs</Title>
-          <LogViewer jobId={selectedJob} />
-        </div>
-      )}
     </>
   );
 }

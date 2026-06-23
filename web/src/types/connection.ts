@@ -1,10 +1,10 @@
 export interface Connection {
   id: string;
   name: string;
-  type: 'aap';
+  type: string;
   role: 'source' | 'destination';
   url: string;
-  token: string;
+  token: string | null;
   verify_ssl: boolean;
   version?: string;
   api_prefix?: string;
@@ -13,17 +13,6 @@ export interface Connection {
   auth_status?: 'unknown' | 'ok' | 'error';
   auth_error?: string;
   last_checked?: string;
-}
-
-/** Payload for create/update; type is assigned server-side (AAP-only). */
-export type ConnectionPayload = Omit<Connection, 'id' | 'token' | 'type' | 'version'> & {
-  version: string;
-  token?: string;
-};
-
-export interface SupportedVersions {
-  source_versions: string[];
-  target_versions: string[];
 }
 
 export interface TestResult {
