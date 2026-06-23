@@ -1,10 +1,5 @@
 const BASE = '';
 
-type ResourceListParams = {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-};
 
 function formatErrorValue(value: unknown, fallback: string): string {
   if (typeof value === 'string' && value) return value;
@@ -56,22 +51,6 @@ export const api = {
   updateConnection: (id: string, conn: unknown) => request<unknown>('PUT', `/api/connections/${id}`, conn),
   deleteConnection: (id: string) => request<void>('DELETE', `/api/connections/${id}`),
   testConnection: (id: string) => request<{ ok: boolean; error?: string }>('POST', `/api/connections/${id}/test`),
-
-  listResourceTypes: (connId: string) => request<unknown[]>('GET', `/api/connections/${connId}/resources`),
-  listResources: (connId: string, type: string, params: ResourceListParams = {}) => {
-    const query = new URLSearchParams();
-    if (params.page !== undefined) query.set('page', String(params.page));
-    if (params.pageSize !== undefined) query.set('page_size', String(params.pageSize));
-    if (params.search) query.set('search', params.search);
-    const suffix = query.size > 0 ? `?${query.toString()}` : '';
-    return request<{ count: number; results: unknown[]; page: number; page_size: number }>(
-      'GET',
-      `/api/connections/${connId}/resources/${type}${suffix}`,
-    );
-  },
-
-  runCleanup: (connId: string) => request<{ job_id: string }>('POST', `/api/connections/${connId}/cleanup`),
-  runExport: (connId: string) => request<{ job_id: string }>('POST', `/api/connections/${connId}/export`),
 
   migrationPreview: (sourceId: string, destinationId: string) =>
     request<{ job_id: string }>('POST', '/api/migrate/preview', { source_id: sourceId, destination_id: destinationId }),

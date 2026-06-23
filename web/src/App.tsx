@@ -21,9 +21,7 @@ import {
 } from '@patternfly/react-core';
 import BarsIcon from '@patternfly/react-icons/dist/esm/icons/bars-icon';
 import { Dashboard } from './pages/Dashboard';
-import { Operations } from './pages/Operations';
 import { Migrate } from './pages/Migrate';
-import { ObjectBrowser } from './pages/ObjectBrowser';
 import { Jobs } from './pages/Jobs';
 
 const ansibleLogo =
@@ -74,18 +72,8 @@ export function App() {
               </NavLink>
             </NavItem>
             <NavItem>
-              <NavLink to="/operations" style={({ isActive }) => ({ fontWeight: isActive ? 'bold' : 'normal' })}>
-                Operations
-              </NavLink>
-            </NavItem>
-            <NavItem>
               <NavLink to="/migrate" style={({ isActive }) => ({ fontWeight: isActive ? 'bold' : 'normal' })}>
                 Migrate
-              </NavLink>
-            </NavItem>
-            <NavItem>
-              <NavLink to="/browse" style={({ isActive }) => ({ fontWeight: isActive ? 'bold' : 'normal' })}>
-                Object Browser
               </NavLink>
             </NavItem>
             <NavItem>
@@ -105,9 +93,7 @@ export function App() {
         <PageSection>
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/operations" element={<Operations />} />
             <Route path="/migrate" element={<Migrate />} />
-            <Route path="/browse" element={<ObjectBrowser />} />
             <Route path="/jobs" element={<Jobs />} />
           </Routes>
         </PageSection>

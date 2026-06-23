@@ -78,7 +78,7 @@ export function Jobs() {
           ))}
           {jobs.length === 0 && (
             <Tr>
-              <Td colSpan={5}>No jobs yet. Run an operation from the Operations page.</Td>
+              <Td colSpan={5}>No jobs yet. Run a migration phase from the Migrate page.</Td>
             </Tr>
           )}
         </Tbody>

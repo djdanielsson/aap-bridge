@@ -12,7 +12,6 @@ from aap_migration.api.services.cli_workflows import (
     migration_resource_types,
     migration_schemas_exist,
     run_connection_cleanup,
-    run_connection_export,
     run_migration_prep,
     run_phased_migration,
 )
@@ -48,45 +47,6 @@ def test_build_migration_context_pair_sets_config_path_for_cli_commands(
 
     assert ctx.config_path == config_path.resolve()
     assert ctx._config is not None
-
-
-@pytest.mark.asyncio
-async def test_run_connection_export_uses_parallel_export_coordinator(tmp_path: Path) -> None:
-    conn = _connection(role="source", version="2.5")
-    mock_ctx = MagicMock()
-    mock_ctx.config.performance.parallel_resource_types = True
-    mock_ctx.config.export.records_per_file = 1000
-    mock_ctx.source_client.close = AsyncMock()
-
-    coordinator = MagicMock()
-    coordinator.export_all_parallel = AsyncMock(
-        return_value={
-            "organizations": {"exported": 2, "failed": 0},
-            "projects": {"exported": 0, "failed": 1},
-        }
-    )
-
-    with (
-        patch(
-            "aap_migration.api.services.cli_workflows.build_migration_context",
-            return_value=mock_ctx,
-        ),
-        patch(
-            "aap_migration.api.services.cli_workflows._export_resource_types",
-            return_value=["organizations", "projects"],
-        ),
-        patch(
-            "aap_migration.api.services.cli_workflows.ParallelExportCoordinator",
-            return_value=coordinator,
-        ),
-    ):
-        result = await run_connection_export(conn, "sqlite:///test.db", tmp_path)
-
-    assert result.total_resources == 2
-    assert result.resource_types == 1
-    assert result.errors == 1
-    assert (tmp_path / "metadata.json").exists()
-    mock_ctx.source_client.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

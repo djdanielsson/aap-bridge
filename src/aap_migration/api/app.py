@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from aap_migration.api.dependencies import set_app_state
 from aap_migration.api.models import Base, Job
-from aap_migration.api.routers import connections, jobs, migration, operations, resources
+from aap_migration.api.routers import connections, jobs, migration
 from aap_migration.api.services.job_service import JobService
 from aap_migration.api.websocket import router as ws_router
 
@@ -82,8 +82,6 @@ def create_app(db_url: str = "") -> FastAPI:
     )
 
     app.include_router(connections.router, prefix="/api")
-    app.include_router(resources.router, prefix="/api")
-    app.include_router(operations.router, prefix="/api")
     app.include_router(migration.router, prefix="/api")
     app.include_router(jobs.router, prefix="/api")
     app.include_router(ws_router)

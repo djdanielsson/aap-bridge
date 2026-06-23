@@ -26,7 +26,6 @@ from aap_migration.cli.commands.cleanup import (
 from aap_migration.cli.context import MigrationContext
 from aap_migration.client.aap_target_client import AAPTargetClient
 from aap_migration.cli.commands.migrate import DEFAULT_MIGRATION_EXCLUDED_TYPES
-from aap_migration.migration.parallel_exporter import ParallelExportCoordinator
 from aap_migration.resources import (
     ORGANIZATION_SCOPED_RESOURCES,
     PARENT_SCOPED_RESOURCES,
@@ -378,14 +377,6 @@ async def run_migration_preview(
 
 
 @dataclass
-class ExportWorkflowResult:
-    output_dir: Path
-    total_resources: int
-    resource_types: int
-    errors: int
-
-
-@dataclass
 class CleanupWorkflowResult:
     deleted: int
     skipped: int
@@ -423,86 +414,6 @@ def _clean_workflow_directories(ctx: MigrationContext, log: LogFn | None = None)
             if log:
                 log(f"Failed to clear {label} directory {path}: {exc}")
     return cleared
-
-
-async def run_connection_export(
-    conn: Connection,
-    db_url: str,
-    output_dir: Path,
-    *,
-    log: LogFn | None = None,
-) -> ExportWorkflowResult:
-    """Export resources from a connection using the CLI parallel export coordinator."""
-    ctx = build_migration_context(conn, db_url)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    types_to_export = _export_resource_types()
-
-    if log:
-        log(f"Exporting {len(types_to_export)} resource types to {output_dir}")
-
-    coordinator = ParallelExportCoordinator(
-        source_client=ctx.source_client,
-        migration_state=ctx.migration_state,
-        performance_config=ctx.config.performance,
-        output_dir=output_dir,
-        records_per_file=ctx.config.export.records_per_file,
-        export_config=ctx.config.export,
-    )
-
-    def progress_callback(resource_type: str, stats: dict) -> None:
-        if not log:
-            return
-        exported = stats.get("exported", 0)
-        failed = stats.get("failed", 0)
-        if exported or failed:
-            log(f"  {resource_type}: exported={exported} failed={failed}")
-
-    if ctx.config.performance.parallel_resource_types:
-        parallel_results = await coordinator.export_all_parallel(
-            resource_types=types_to_export,
-            resume=False,
-            progress_callback=progress_callback,
-        )
-    else:
-        parallel_results = {}
-        for resource_type in types_to_export:
-            if log:
-                log(f"Exporting {resource_type}...")
-            parallel_results[resource_type] = await coordinator.export_resource_type(
-                resource_type,
-                resume=False,
-                progress_callback=progress_callback,
-            )
-
-    total_resources = 0
-    total_errors = 0
-    exported_types = 0
-    for resource_type, stats in parallel_results.items():
-        exported_count = stats.get("exported", 0)
-        failed_count = stats.get("failed", 0)
-        total_resources += exported_count
-        total_errors += failed_count
-        if exported_count > 0:
-            exported_types += 1
-
-    metadata = {
-        "export_timestamp": datetime.now(UTC).isoformat(),
-        "source_url": ctx.config.source.url,
-        "source_version": ctx.config.source.version,
-        "target_version": ctx.config.target.version,
-        "total_resources": total_resources,
-        "resource_types": parallel_results,
-    }
-    with open(output_dir / "metadata.json", "w") as f:
-        json.dump(metadata, f, indent=2, default=str)
-
-    await ctx.source_client.close()
-    return ExportWorkflowResult(
-        output_dir=output_dir,
-        total_resources=total_resources,
-        resource_types=exported_types,
-        errors=total_errors,
-    )
 
 
 async def run_connection_cleanup(
