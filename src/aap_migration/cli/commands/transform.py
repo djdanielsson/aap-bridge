@@ -22,6 +22,8 @@ from aap_migration.cli.utils import (
     echo_warning,
     format_count,
 )
+from aap_migration.client.api_layout import parse_aap_major_minor
+from aap_migration.client.exceptions import APIError, NotFoundError
 from aap_migration.migration.parallel_transformer import ParallelTransformCoordinator
 from aap_migration.migration.state import MigrationState
 from aap_migration.migration.transformer import SkipResourceError, create_transformer
@@ -65,6 +67,22 @@ def sort_by_transform_order(resource_types: list[str]) -> list[str]:
     return [rtype for rtype, _ in known] + unknown
 
 
+_MANAGED_CREDENTIAL_TYPE_MIN_VERSION = (2, 3)
+
+
+def credential_types_support_managed_filter(aap_version: str) -> bool:
+    """Return True when the source/target API supports ?managed= on credential types."""
+    major, minor = parse_aap_major_minor(aap_version)
+    return (major, minor) >= _MANAGED_CREDENTIAL_TYPE_MIN_VERSION
+
+
+def is_builtin_credential_type(credential_type: dict) -> bool:
+    """Return True for built-in credential types on legacy sources without managed=."""
+    if credential_type.get("managed"):
+        return True
+    return bool(credential_type.get("namespace"))
+
+
 async def seed_skipped_execution_environments(
     ctx: MigrationContext, state: MigrationState
 ) -> int:
@@ -85,7 +103,17 @@ async def seed_skipped_execution_environments(
         return 0
 
     source_ees: dict[str, int] = {}
-    for ee in await ctx.source_client.get_execution_environments():
+    try:
+        source_ee_list = await ctx.source_client.get_execution_environments()
+    except NotFoundError:
+        logger.debug(
+            "seed_execution_environments_not_applicable",
+            source_version=ctx.config.source.version,
+            message="Source has no execution_environments API",
+        )
+        return 0
+
+    for ee in source_ee_list:
         name = str(ee.get("name", "")).strip()
         if name.casefold() in skip_names:
             source_ees[name] = ee["id"]
@@ -143,11 +171,23 @@ async def seed_builtin_credential_types(ctx: MigrationContext, state: MigrationS
         Number of built-in credential types seeded
     """
     try:
-        # Fetch managed (built-in) credential types from source AAP 2.3
-        source_types = {}
-        source_credential_types = await ctx.source_client.get_credential_types(
-            params={"managed": "true"}
-        )
+        source_types: dict[str, int] = {}
+        source_version = ctx.config.source.version or "2.3"
+        if credential_types_support_managed_filter(source_version):
+            source_credential_types = await ctx.source_client.get_credential_types(
+                params={"managed": "true"}
+            )
+        else:
+            try:
+                source_credential_types = await ctx.source_client.get_credential_types()
+            except APIError as exc:
+                if "managed" not in str(exc).casefold():
+                    raise
+                source_credential_types = await ctx.source_client.get_credential_types()
+            source_credential_types = [
+                ct for ct in source_credential_types if is_builtin_credential_type(ct)
+            ]
+
         for ct in source_credential_types:
             source_types[ct["name"]] = ct["id"]
 
