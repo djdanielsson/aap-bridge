@@ -86,6 +86,7 @@ class TestResult(BaseModel):
 
 class JobResponse(BaseModel):
     id: str
+    seq_id: int | None = None
     type: str
     connection_id: str | None = None
     status: str

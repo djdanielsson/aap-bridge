@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from aap_migration.api.db_schema import ensure_jobs_seq_id_column
 from aap_migration.api.dependencies import set_app_state
 from aap_migration.api.models import Base, Job
 from aap_migration.api.routers import connections, jobs, migration
@@ -33,6 +34,7 @@ class AppState:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     engine = create_engine(_db_url, pool_pre_ping=True)
     Base.metadata.create_all(engine)
+    ensure_jobs_seq_id_column(engine)
 
     from aap_migration.migration.models import Base as MigrationBase
 

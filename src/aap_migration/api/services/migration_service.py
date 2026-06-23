@@ -221,10 +221,18 @@ class MigrationService:
         return os.environ.get("MIGRATION_STATE_DB_PATH", "sqlite:///aap_bridge.db")
 
     def _create_job(self, job_type: str, connection_id: str | None = None) -> str:
+        from aap_migration.api.db_schema import allocate_job_seq_id
+
         job_id = str(uuid4())
         db = self.session_factory()
         try:
-            job = Job(id=job_id, type=job_type, connection_id=connection_id, status="running")
+            job = Job(
+                id=job_id,
+                seq_id=allocate_job_seq_id(db),
+                type=job_type,
+                connection_id=connection_id,
+                status="running",
+            )
             db.add(job)
             db.commit()
         finally:

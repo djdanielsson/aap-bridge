@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from aap_migration.migration.models import Base
@@ -43,6 +43,7 @@ class Job(Base):
     __tablename__ = "jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    seq_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     connection_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("connections.id", ondelete="SET NULL"), nullable=True
