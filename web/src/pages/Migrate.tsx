@@ -13,7 +13,6 @@ import {
   FormGroup,
   FormSelect,
   FormSelectOption,
-  Divider,
   Checkbox,
   Grid,
   GridItem,
@@ -241,10 +240,23 @@ export function Migrate() {
         </CardBody>
       </Card>
 
-      {/* Main menu */}
+      {/* Preview Migration */}
       <Card style={{ marginBottom: 16, maxWidth: 800 }}>
         <CardBody>
-          <Title headingLevel="h3" size="md" style={{ marginBottom: 16 }}>Main Menu</Title>
+          <Button
+            variant="secondary"
+            onClick={() => { void runPreview(); }}
+            isDisabled={!pairSelected || busy}
+            isLoading={runningAction === 'preview'}
+          >
+            Preview Migration
+          </Button>
+        </CardBody>
+      </Card>
+
+      {/* Migration */}
+      <Card style={{ marginBottom: 16, maxWidth: 800 }}>
+        <CardBody>
           <Grid hasGutter>
 
             {/* Row 1: Cleanup — full width */}
@@ -386,17 +398,6 @@ export function Migrate() {
 
           </Grid>
 
-          <Divider style={{ margin: '20px 0 12px' }} />
-
-          <Title headingLevel="h4" size="md" style={{ marginBottom: 8 }}>Web UI only</Title>
-          <Button
-            variant="secondary"
-            onClick={() => { void runPreview(); }}
-            isDisabled={!pairSelected || busy}
-            isLoading={runningAction === 'preview'}
-          >
-            Preview Migration
-          </Button>
         </CardBody>
       </Card>
 
