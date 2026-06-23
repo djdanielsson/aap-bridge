@@ -18,19 +18,6 @@ import { api } from '../api/client';
 import type { Connection, ConnectionPayload, SupportedVersions } from '../types/connection';
 
 const MASKED_TOKEN = '********';
-const DEFAULT_SOURCE_VERSION = '2.4';
-const DEFAULT_TARGET_VERSION = '2.6';
-
-function defaultVersionForRole(role: 'source' | 'destination', versions: SupportedVersions | null): string {
-  if (!versions) {
-    return role === 'destination' ? DEFAULT_TARGET_VERSION : DEFAULT_SOURCE_VERSION;
-  }
-  const options = role === 'destination' ? versions.target_versions : versions.source_versions;
-  if (role === 'destination') {
-    return options.includes(DEFAULT_TARGET_VERSION) ? DEFAULT_TARGET_VERSION : options[options.length - 1];
-  }
-  return options.includes(DEFAULT_SOURCE_VERSION) ? DEFAULT_SOURCE_VERSION : options[options.length - 1];
-}
 
 interface Props {
   isOpen: boolean;
@@ -46,9 +33,23 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
   const [token, setToken] = useState('');
   const [verifySsl, setVerifySsl] = useState(initial?.verify_ssl ?? true);
   const [versions, setVersions] = useState<SupportedVersions | null>(null);
-  const [version, setVersion] = useState(initial?.version || DEFAULT_SOURCE_VERSION);
+  const [version, setVersion] = useState(initial?.version || '');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+
+  // Reset fields each time the modal opens (add and edit). Without this, reusing the
+  // same component instance for successive "Add Connection" clicks keeps stale values.
+  useEffect(() => {
+    if (!isOpen) return;
+    setName(initial?.name || '');
+    setRole(initial?.role || 'source');
+    setUrl(initial?.url || '');
+    setToken('');
+    setVerifySsl(initial?.verify_ssl ?? true);
+    setVersion(initial?.version || '');
+    setSaveError('');
+    setSaving(false);
+  }, [isOpen, initial]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -58,8 +59,8 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
   useEffect(() => {
     if (!versions) return;
     const options = role === 'destination' ? versions.target_versions : versions.source_versions;
-    if (!options.includes(version)) {
-      setVersion(defaultVersionForRole(role, versions));
+    if (version && !options.includes(version)) {
+      setVersion('');
     }
   }, [versions, role, version]);
 
@@ -67,8 +68,8 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
     setRole(newRole);
     if (!versions) return;
     const options = newRole === 'destination' ? versions.target_versions : versions.source_versions;
-    if (!options.includes(version)) {
-      setVersion(defaultVersionForRole(newRole, versions));
+    if (version && !options.includes(version)) {
+      setVersion('');
     }
   };
 
@@ -76,7 +77,13 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
     ? (role === 'destination' ? versions.target_versions : versions.source_versions)
     : [];
 
+  const canSave = Boolean(name.trim() && url.trim() && version);
+
   const handleSubmit = async () => {
+    if (!version) {
+      setSaveError('Select an AAP version.');
+      return;
+    }
     const payload: ConnectionPayload = { name, role, url, version, verify_ssl: verifySsl };
     const trimmedToken = token.trim();
     if (!initial?.id || (trimmedToken && trimmedToken !== MASKED_TOKEN)) {
@@ -100,7 +107,7 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
       variant={ModalVariant.medium}
       title={initial?.name ? 'Edit Connection' : 'Add Connection'}
       actions={[
-        <Button key="save" variant="primary" onClick={() => { void handleSubmit(); }} isLoading={saving} isDisabled={saving}>Save</Button>,
+        <Button key="save" variant="primary" onClick={() => { void handleSubmit(); }} isLoading={saving} isDisabled={saving || !canSave}>Save</Button>,
         <Button key="cancel" variant="link" onClick={onClose} isDisabled={saving}>Cancel</Button>,
       ]}
     >
@@ -131,6 +138,7 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
             onChange={(_e, v) => setVersion(v)}
             isDisabled={versionOptions.length === 0}
           >
+            <FormSelectOption key="" value="" label="-- Select version --" isDisabled />
             {versionOptions.map((v) => (
               <FormSelectOption key={v} value={v} label={v} />
             ))}
