@@ -17,7 +17,9 @@ import {
   Grid,
   GridItem,
   Label,
+  Tooltip,
 } from '@patternfly/react-core';
+import QuestionCircleIcon from '@patternfly/react-icons/dist/esm/icons/question-circle-icon';
 import { api } from '../api/client';
 import { LogViewer } from '../components/LogViewer';
 import { MigrationPreview } from '../components/MigrationPreview';
@@ -32,6 +34,38 @@ type RunningAction =
   | 'preview'
   | null;
 
+const FULL_CLEANUP_HELP =
+  'Clears migration state, deletes migrated resources on the selected destination, '
+  + 'cancels active jobs on that destination, and removes local exports/ and xformed/ '
+  + 'files. Use before re-running a full migration to the same destination.';
+
+const CLEAR_STATE_HELP =
+  'Clears migration state tables and local exports/ and xformed/ files for all '
+  + 'configured source/destination pairs. Does not delete resources on any AAP instance. '
+  + 'Use when switching pairs or forcing the next import to re-create resources '
+  + 'instead of skipping previously migrated ones.';
+
+function CleanupInfo({ content }: { content: string }) {
+  return (
+    <Tooltip content={<div style={{ maxWidth: 300 }}>{content}</div>}>
+      <button
+        type="button"
+        aria-label="More information"
+        style={{
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'help',
+          display: 'inline-flex',
+          color: 'var(--pf-v5-global--icon--Color--light--dark, #6a6e73)',
+        }}
+      >
+        <QuestionCircleIcon />
+      </button>
+    </Tooltip>
+  );
+}
+
 export function Migrate() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [sourceId, setSourceId] = useState('');
@@ -44,6 +78,8 @@ export function Migrate() {
   const [previewData, setPreviewData] = useState<MigrationPreviewData | null>(null);
   const [previewJobId, setPreviewJobId] = useState('');
   const [prepForce, setPrepForce] = useState(false);
+  const [clearStateMsg, setClearStateMsg] = useState('');
+  const [clearStateBusy, setClearStateBusy] = useState(false);
 
   const loadConnections = useCallback(async () => {
     const conns = await api.listConnections() as Connection[];
@@ -53,7 +89,7 @@ export function Migrate() {
   useEffect(() => { loadConnections(); }, [loadConnections]);
 
   const pairSelected = Boolean(sourceId && destId && sourceId !== destId);
-  const busy = runningAction !== null;
+  const busy = runningAction !== null || clearStateBusy;
 
   // Poll a job until it completes or fails; resolves/rejects accordingly.
   const waitForJob = useCallback((jobId: string): Promise<void> =>
@@ -95,6 +131,27 @@ export function Migrate() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setRunningAction(null);
+    }
+  };
+
+  const runClearState = async () => {
+    if (busy) return;
+    setError('');
+    setStatusMsg('');
+    setClearStateMsg('');
+    setClearStateBusy(true);
+    try {
+      const result = await api.clearMigrationState();
+      const dirs = result.directories_cleared.length > 0
+        ? ` Cleared local ${result.directories_cleared.join(' and ')} directories.`
+        : '';
+      setClearStateMsg(
+        `Cleared ${result.cleared_progress} progress records and ${result.deleted_mappings} ID mappings.${dirs}`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setClearStateBusy(false);
     }
   };
 
@@ -259,17 +316,46 @@ export function Migrate() {
         <CardBody>
           <Grid hasGutter>
 
-            {/* Row 1: Cleanup — full width */}
+            {/* Row 1: Cleanup options */}
             <GridItem span={12}>
-              <Button
-                variant="warning"
-                onClick={() => { void runAction('cleanup'); }}
-                isDisabled={!pairSelected || busy}
-                isLoading={runningAction === 'cleanup'}
-                style={btnStyle}
-              >
-                0. Cleanup
-              </Button>
+              <Card isPlain style={{ border: '1px solid var(--pf-v5-global--BorderColor--100, #d2d2d2)' }}>
+                <CardHeader>
+                  <Title headingLevel="h4" size="md">Cleanup</Title>
+                </CardHeader>
+                <CardBody>
+                  <Grid hasGutter>
+                    <GridItem span={6}>
+                      <Flex alignItems={{ default: 'alignItemsCenter' }} spaceItems={{ default: 'spaceItemsSm' }}>
+                        <Button
+                          variant="warning"
+                          onClick={() => { void runAction('cleanup'); }}
+                          isDisabled={!pairSelected || busy}
+                          isLoading={runningAction === 'cleanup'}
+                        >
+                          0. Full Cleanup
+                        </Button>
+                        <CleanupInfo content={FULL_CLEANUP_HELP} />
+                      </Flex>
+                    </GridItem>
+                    <GridItem span={6}>
+                      <Flex alignItems={{ default: 'alignItemsCenter' }} spaceItems={{ default: 'spaceItemsSm' }}>
+                        <Button
+                          variant="secondary"
+                          onClick={() => { void runClearState(); }}
+                          isDisabled={busy}
+                          isLoading={clearStateBusy}
+                        >
+                          Clear Migration State Only
+                        </Button>
+                        <CleanupInfo content={CLEAR_STATE_HELP} />
+                      </Flex>
+                    </GridItem>
+                  </Grid>
+                  {clearStateMsg && (
+                    <Alert variant="success" isInline title={clearStateMsg} style={{ marginTop: 16 }} />
+                  )}
+                </CardBody>
+              </Card>
             </GridItem>
 
             {/* Row 2: Prep — full width */}

@@ -100,7 +100,12 @@ export const api = {
       job_id: previewJobId,
     }),
 
-  clearMigrationState: () => request<{ cleared_progress: number; deleted_mappings: number }>('POST', '/api/migrate/clear-state'),
+  clearMigrationState: () =>
+    request<{ cleared_progress: number; deleted_mappings: number; directories_cleared: string[] }>(
+      'POST',
+      '/api/migrate/clear-state',
+    ),
+
   getExclusions: () => request<unknown>('GET', '/api/exclusions'),
 
   listJobs: () => request<unknown[]>('GET', '/api/jobs'),

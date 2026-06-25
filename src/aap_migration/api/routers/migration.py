@@ -200,10 +200,10 @@ def start_import(data: MigrateImportRequest, db: Session = Depends(get_db)) -> J
 
 @router.post("/migrate/clear-state", status_code=200)
 def clear_state(db: Session = Depends(get_db)) -> dict:
-    """Clear migration state (progress records and ID mappings)."""
+    """Clear migration state and local export/transform files (not target AAP)."""
     import os
 
-    from aap_migration.cli.commands.cleanup import clear_database
+    from aap_migration.api.services.cli_workflows import clear_migration_state_only
 
     active_jobs = (
         db.query(Job)
@@ -217,11 +217,7 @@ def clear_state(db: Session = Depends(get_db)) -> dict:
         )
 
     db_url = os.environ.get("MIGRATION_STATE_DB_PATH", "sqlite:///aap_bridge.db")
-    cleared, deleted = clear_database(db_url)
-    return {
-        "cleared_progress": cleared,
-        "deleted_mappings": deleted,
-    }
+    return clear_migration_state_only(db_url)
 
 
 @router.get("/exclusions")

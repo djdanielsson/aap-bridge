@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -16,7 +17,12 @@ import click
 
 from aap_migration.api.models import Connection
 from aap_migration.api.services.engine_adapter import load_runtime_config
-from aap_migration.config import DEFAULT_SKIP_EXECUTION_ENVIRONMENT_NAMES, resolve_config_path
+from aap_migration.config import (
+    DEFAULT_SKIP_EXECUTION_ENVIRONMENT_NAMES,
+    PathConfig,
+    load_config_tuning_from_yaml,
+    resolve_config_path,
+)
 from aap_migration.cli.commands.cleanup import (
     cancel_all_jobs,
     clear_database,
@@ -461,16 +467,30 @@ class CleanupWorkflowResult:
     directories_removed: list[str] = field(default_factory=list)
 
 
-def _clean_workflow_directories(ctx: MigrationContext, log: LogFn | None = None) -> list[str]:
-    """Clear local export and transform directories, matching CLI cleanup.
+def _workflow_path_config() -> PathConfig:
+    """Return export/transform path settings from AAP_BRIDGE_CONFIG when set."""
+    config_path = os.environ.get("AAP_BRIDGE_CONFIG")
+    if config_path:
+        try:
+            tuning = load_config_tuning_from_yaml(config_path)
+            raw = tuning.get("paths")
+            if isinstance(raw, dict):
+                return PathConfig(**raw)
+        except (FileNotFoundError, ValueError):
+            pass
+    return PathConfig()
 
-    The directories themselves are preserved because they may be bind-mount
-    points inside the container (rmtree on a mount point raises EBUSY).
-    All contents are removed recursively instead.
-    """
+
+def _clean_export_transform_directories(
+    export_dir: str | Path = "exports",
+    transform_dir: str | Path = "xformed",
+    *,
+    log: LogFn | None = None,
+) -> list[str]:
+    """Clear local export and transform directory contents."""
     directories = {
-        "exports": Path(ctx.config.paths.export_dir),
-        "xformed": Path(ctx.config.paths.transform_dir),
+        "exports": Path(export_dir),
+        "xformed": Path(transform_dir),
     }
     cleared: list[str] = []
     for label, path in directories.items():
@@ -489,6 +509,38 @@ def _clean_workflow_directories(ctx: MigrationContext, log: LogFn | None = None)
             if log:
                 log(f"Failed to clear {label} directory {path}: {exc}")
     return cleared
+
+
+def clear_migration_state_only(db_url: str) -> dict[str, int | list[str]]:
+    """Clear migration state tables and local export/transform files.
+
+    Does not delete resources on any AAP instance.
+    """
+    cleared_progress, deleted_mappings = clear_database(db_url)
+    paths = _workflow_path_config()
+    directories_cleared = _clean_export_transform_directories(
+        paths.export_dir,
+        paths.transform_dir,
+    )
+    return {
+        "cleared_progress": cleared_progress,
+        "deleted_mappings": deleted_mappings,
+        "directories_cleared": directories_cleared,
+    }
+
+
+def _clean_workflow_directories(ctx: MigrationContext, log: LogFn | None = None) -> list[str]:
+    """Clear local export and transform directories, matching CLI cleanup.
+
+    The directories themselves are preserved because they may be bind-mount
+    points inside the container (rmtree on a mount point raises EBUSY).
+    All contents are removed recursively instead.
+    """
+    return _clean_export_transform_directories(
+        ctx.config.paths.export_dir,
+        ctx.config.paths.transform_dir,
+        log=log,
+    )
 
 
 async def run_connection_cleanup(

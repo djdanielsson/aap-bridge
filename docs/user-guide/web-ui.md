@@ -76,8 +76,13 @@ the TUI:
 
 1. **Preview Migration** - Compare source and destination resource counts using
    the same filters as export (create vs. skip)
-2. **0. Cleanup** - Clear migration state, remove non-default objects on the
-   destination, and delete local `exports/` and `xformed/` directories
+2. **Cleanup** - Two options (hover the info icon beside each button for details):
+   - **Full cleanup** (requires source and destination) — clears migration state,
+     deletes migrated resources on the selected destination, and removes local
+     `exports/` and `xformed/` files
+   - **Clear migration state only** — clears migration state and local
+     `exports/` and `xformed/` files for all configured pairs without touching
+     any AAP instance
 3. **1. Prep Phase** - Discover endpoints and collect schemas (optional force
    re-collection)
 4. **2–4. Export / Transform / Import Phase 1** - Run individually or use the
@@ -109,12 +114,12 @@ The API server exposes these endpoints:
 | POST | `/api/migrate/preview` | Start migration preview |
 | GET | `/api/migrate/preview/{job_id}` | Get preview results |
 | POST | `/api/migrate/prep` | Run prep (discover endpoints and schemas) |
-| POST | `/api/migrate/cleanup` | Run cleanup |
+| POST | `/api/migrate/cleanup` | Full cleanup (destination resources, state, local files) |
+| POST | `/api/migrate/clear-state` | Clear migration state and local files (not target AAP) |
 | POST | `/api/migrate/export` | Run export |
 | POST | `/api/migrate/transform` | Run transform |
 | POST | `/api/migrate/import` | Run import (phase 1 or 2) |
 | POST | `/api/migrate/run` | Execute full migration (legacy endpoint) |
-| POST | `/api/migrate/clear-state` | Clear migration state tables only |
 | GET | `/api/exclusions` | Get exclusion lists |
 | GET | `/api/jobs` | List jobs |
 | GET | `/api/jobs/{id}` | Get job details |
