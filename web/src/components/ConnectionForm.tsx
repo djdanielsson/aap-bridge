@@ -146,7 +146,7 @@ export function ConnectionForm({ isOpen, initial, onSave, onClose }: Props) {
           <FormHelperText>
             <HelperText>
               <HelperTextItem>
-                Select the AAP version for API routing. Older releases do not expose a reliable version from the API.
+                Select the AAP version for API routing.
               </HelperTextItem>
             </HelperText>
           </FormHelperText>

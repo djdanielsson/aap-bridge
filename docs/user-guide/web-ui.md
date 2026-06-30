@@ -50,10 +50,9 @@ Manage AAP instance connections. Each connection stores:
 
 - **Name** - Friendly label
 - **Role** - Source (migrate from) or Destination (migrate to)
-- **AAP Version** - Required; selects API routing for this instance. Older
-  releases do not expose a reliable version from the API, so you choose it
-  explicitly here. This replaces ``SOURCE__VERSION`` / ``TARGET__VERSION`` for
-  Web UI workflows; the CLI and TUI still read those variables from ``.env``.
+- **AAP Version** - Required; selects API routing for this instance. This
+  replaces ``SOURCE__VERSION`` / ``TARGET__VERSION`` for Web UI workflows; the
+  CLI and TUI still read those variables from ``.env``.
 - **URL** - Gateway root URL (e.g., `https://aap.example.com`)
 - **Token** - API authentication token
 - **Verify SSL** - Whether to verify TLS certificates
