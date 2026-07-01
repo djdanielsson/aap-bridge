@@ -1,6 +1,7 @@
 # Testing with Ephemeral AAP Instances
 
-This guide covers building, running, and testing aap-bridge against containerized AAP instances across multiple versions.
+This guide covers building, running, and testing aap-bridge against containerized AAP instances
+across multiple versions.
 
 ## Prerequisites
 
@@ -37,7 +38,7 @@ Everything runs in containers. No Python, Ansible, or other tools needed on the 
 | **builder** | Ansible + podman-remote for managing AAP test containers |
 | **AAP containers** | UBI-based systemd containers with AAP installed via `setup.sh` |
 
-```
+```text
 Host (podman + make)
 ├── compose: bridge + db
 ├── builder container (ansible, runs via podman socket)
@@ -207,7 +208,7 @@ make destroy-pair SOURCE=2.3 TARGET=2.6
 
 Each version gets a deterministic port block so pairs don't conflict:
 
-```
+```text
 Source ports: 10000 + (version_index * 100) + offset
 Target ports: 20000 + (version_index * 100) + offset
 
@@ -276,7 +277,7 @@ If the AAP installer fails, the build output shows the last 150 lines of the ins
 
 ## File Layout
 
-```
+```text
 Containerfile                        # aap-bridge app (UBI 9 + Python 3.12)
 compose.yml                          # db + bridge + engine + ui services
 Makefile                             # All targets (host needs only podman + make)
