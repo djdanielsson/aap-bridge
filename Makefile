@@ -1,11 +1,7 @@
 .PHONY: help install install-dev clean format lint typecheck test test-unit test-integration \
        test-performance test-cov check docs docs-serve \
        init-env setup version venv install-editable all \
-<<<<<<< HEAD
        build build-api build-ui build-all up up-dev down shell shell-engine logs \
-       ensure-bridge-dev-image ensure-api-ui-images web-install web-dev web-build serve
-=======
-       build build-api build-ui build-all prepare-pgdata up up-dev down shell shell-engine logs \
        ensure-bridge-dev-image ensure-api-ui-images \
        c-test c-lint c-format c-typecheck c-check \
        web-install web-dev web-build serve \
@@ -13,7 +9,6 @@
        push-aap pull-aap list-golden \
        run-pair stop-pair reset-pair destroy-pair destroy-all \
        test-bridge test-all status shell-src shell-tgt
->>>>>>> ff01ed7 (feat(testing): add container-first AAP integration infrastructure)
 
 .DEFAULT_GOAL := help
 
