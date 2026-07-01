@@ -3,7 +3,7 @@
        init-env setup version venv install-editable all \
        build build-api build-ui build-all up up-dev down shell shell-engine logs \
        ensure-bridge-dev-image ensure-api-ui-images \
-       c-test c-lint c-format c-typecheck c-check \
+       c-test c-test-all c-lint c-format c-typecheck c-check \
        web-install web-dev web-build serve \
        build-builder build-aap-bases build-aap build-aap-all \
        push-aap pull-aap list-golden \
@@ -275,8 +275,15 @@ shell-engine: ## Shell into engine container
 logs: ## Tail all container logs
 	$(COMPOSE) logs -f
 
-c-test: ## Run unit tests inside bridge container
-	$(run-bridge) python3.12 -m pytest tests/unit/ -v
+c-test: ## Run unit tests inside bridge container (quick smoke check)
+	$(run-bridge) python3.12 -m pytest tests/unit/ -q --no-cov --disable-warnings \
+		-o addopts= \
+		--ignore=tests/unit/test_export_by_version.py \
+		--ignore=tests/unit/test_import_by_version.py \
+		--ignore=tests/unit/test_transform_by_version.py
+
+c-test-all: ## Run all unit tests inside bridge container (includes fixture-data tests)
+	$(run-bridge) python3.12 -m pytest tests/unit/ -v --no-cov
 
 c-lint: ## Run ruff linter inside bridge container
 	$(run-bridge) python3.12 -m ruff check src/ tests/unit/
@@ -360,7 +367,6 @@ build-aap-bases: ## Build UBI base images for AAP containers
 	$(run-builder) playbooks/build-base-images.yml
 
 build-aap: ## Build AAP golden image (VERSION=2.4)
-	@sudo sysctl -w kernel.keys.maxkeys=5000 2>/dev/null || true
 	$(run-builder) playbooks/build-instance.yml \
 		-e aap_version=$(VERSION)
 
