@@ -237,7 +237,8 @@ tests/integration/.vault_pass
 tests/integration/inventory/group_vars/vault.yml
 
 # AAP subscription manifest (user-provided)
-tests/integration/files/manifest/*.zip
+tests/integration/files/manifest/*
+!tests/integration/files/manifest/.gitkeep
 
 # Local-only project metadata
 project.yaml
