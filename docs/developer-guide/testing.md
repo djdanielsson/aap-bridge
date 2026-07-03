@@ -287,7 +287,10 @@ make destroy-pair SOURCE=2.3 TARGET=2.6
 ### Source test data
 
 When a pair starts or resets, the **source** container is populated via
-`populate_test_data.py` (organizations, users, inventories, job templates, etc.).
+`populate_test_data.py` using admin basic auth. A **read-only** source API token
+is created afterward for `aap-bridge`. The **target** reuses the **write** token
+created during `make build-aap` (platform gateway token for AAP 2.5+, controller
+token for 2.4 and earlier), saved to `generated/images/<version>_rw_token`.
 The target is never populated — it stays empty for migration testing.
 
 | Variable | Default | Purpose |
@@ -339,11 +342,12 @@ Browse the AAP UIs from your host browser (accept the self-signed certificate):
 - Source UI: `https://localhost:<source-controller-port>/` (e.g. `10743` for 2.4)
 - Target UI: `https://localhost:<target-envoy-port>/` for 2.5+ (e.g. `20947` for 2.6)
 
-AAP 2.5+ pair instances get **platform gateway** tokens (`aap-gateway-manage
-create_oauth2_token` in the `automation-gateway` container). Controller-only
-tokens from `awx-manage` authenticate to `/api/controller/v2` but not
-`/api/gateway/v1`. Run `make reset-pair` after upgrading testing infrastructure
-to refresh pair tokens in `generated/pairs/`.
+AAP 2.5+ golden images get a **platform gateway** write token at build time via
+`/api/gateway/v1/tokens/`. Pair targets reuse that token from
+`generated/images/<version>_rw_token` — no second write token is created at pair
+time. The source gets a dedicated read token per pair in `generated/pairs/`.
+Run `make build-aap VERSION=2.6` after upgrading testing infrastructure if pair
+start fails with a missing golden-image token.
 
 See [Port Allocation](#port-allocation) below for the port formula.
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import random
 import ssl
@@ -42,12 +43,31 @@ class State:
 
 
 class AAPClient:
-    def __init__(self, host: str, token: str) -> None:
+    def __init__(
+        self,
+        host: str,
+        token: str | None = None,
+        *,
+        username: str | None = None,
+        password: str | None = None,
+    ) -> None:
         self.base = host.rstrip("/") + "/api/v2"
-        self.token = token
         self.ctx = ssl.create_default_context()
         self.ctx.check_hostname = False
         self.ctx.verify_mode = ssl.CERT_NONE
+        if token:
+            self._auth_header = f"Bearer {token}"
+        elif username is not None and password is not None:
+            creds = base64.b64encode(f"{username}:{password}".encode()).decode()
+            self._auth_header = f"Basic {creds}"
+        else:
+            raise ValueError("Either token or username/password is required")
+
+    def _headers(self, *, json_body: bool = False) -> dict[str, str]:
+        headers = {"Authorization": self._auth_header}
+        if json_body:
+            headers["Content-Type"] = "application/json"
+        return headers
 
     def post(self, endpoint: str, data: dict) -> dict | None:
         url = f"{self.base}/{endpoint}/"
@@ -56,10 +76,7 @@ class AAPClient:
             url,
             data=body,
             method="POST",
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Content-Type": "application/json",
-            },
+            headers=self._headers(json_body=True),
         )
         try:
             with urllib.request.urlopen(req, context=self.ctx) as resp:
@@ -71,7 +88,7 @@ class AAPClient:
         url = f"{self.base}/{endpoint}/"
         if params:
             url += f"?{params}"
-        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
+        req = urllib.request.Request(url, headers=self._headers())
         try:
             with urllib.request.urlopen(req, context=self.ctx) as resp:
                 return json.loads(resp.read())
@@ -493,16 +510,22 @@ def populate(client: AAPClient, size_name: str) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Populate AAP/AWX with test data")
     parser.add_argument("--host", required=True, help="AAP URL (e.g. https://localhost:10743)")
-    parser.add_argument("--token", required=True, help="API Bearer token")
+    parser.add_argument("--token", help="API Bearer token")
+    parser.add_argument("--username", help="Admin username for basic auth (pair setup)")
+    parser.add_argument("--password", help="Admin password for basic auth (pair setup)")
     parser.add_argument(
         "--size", choices=list(SIZES.keys()), default="small", help="Data size tier"
     )
     args = parser.parse_args()
 
-    print(f"Populating {args.host} with '{args.size}' test data set")
-    client = AAPClient(args.host, args.token)
+    if args.token:
+        client = AAPClient(args.host, args.token)
+    elif args.username and args.password:
+        client = AAPClient(args.host, username=args.username, password=args.password)
+    else:
+        parser.error("Provide --token or both --username and --password")
 
-    # Quick connectivity check
+    print(f"Populating {args.host} with '{args.size}' test data set")
     resp = client.get("ping")
     if resp is None:
         print(f"ERROR: Cannot reach {args.host}/api/v2/ping/")
