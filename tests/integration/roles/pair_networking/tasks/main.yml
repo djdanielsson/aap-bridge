@@ -22,6 +22,7 @@
     src_controller_port: "{{ src_port_base | int + port_offset_controller }}"
     src_hub_port: "{{ src_port_base | int + port_offset_hub }}"
     src_eda_port: "{{ src_port_base | int + port_offset_eda }}"
+    src_envoy_port: "{{ src_port_base | int + port_offset_envoy }}"
     tgt_controller_port: "{{ tgt_port_base | int + port_offset_controller }}"
     tgt_hub_port: "{{ tgt_port_base | int + port_offset_hub }}"
     tgt_eda_port: "{{ tgt_port_base | int + port_offset_eda }}"
@@ -57,22 +58,19 @@
     dest: "{{ playbook_dir }}/../generated/pairs/{{ pair_id }}/.env"
     mode: "0640"
 
-- name: Generate config.yaml for aap-bridge
-  ansible.builtin.template:
-    src: bridge-config.j2
-    dest: "{{ playbook_dir }}/../generated/pairs/{{ pair_id }}/config.yaml"
-    mode: "0640"
-
 - name: Report generated config
   ansible.builtin.debug:
     msg: |
-      Bridge config generated for {{ source_version }} -> {{ target_version }}:
-        .env:        generated/pairs/{{ pair_id }}/.env
-        config.yaml: generated/pairs/{{ pair_id }}/config.yaml
-        Source Controller: https://localhost:{{ src_controller_port }}{{ src_config.api.controller_path }}
-        {% if tgt_config.components.gateway.enabled | default(false) %}
-        Target (via envoy): https://localhost:{{ tgt_envoy_port }}{{ tgt_config.api.controller_path }}
-        Target UI:          https://localhost:{{ tgt_envoy_port }}/
+      Bridge env generated for {{ source_version }} -> {{ target_version }}:
+        .env:              generated/pairs/{{ pair_id }}/.env
+        config (shared):   config/config.yaml
+        {% if src_config.components.gateway.enabled | default(false) %}
+        Source (envoy):    https://localhost:{{ src_envoy_port }}/
         {% else %}
-        Target Controller:  https://localhost:{{ tgt_controller_port }}{{ tgt_config.api.controller_path }}
+        Source Controller: https://localhost:{{ src_controller_port }}{{ src_config.api.controller_path }}
+        {% endif %}
+        {% if tgt_config.components.gateway.enabled | default(false) %}
+        Target (envoy):    https://localhost:{{ tgt_envoy_port }}/
+        {% else %}
+        Target Controller: https://localhost:{{ tgt_controller_port }}{{ tgt_config.api.controller_path }}
         {% endif %}

@@ -311,8 +311,9 @@ Golden images (`make build-aap`) are always clean installs with no test data.
 
 ### Using aap-bridge with a pair
 
-After `make run-pair`, open a bridge shell with the pair `.env` already loaded,
-then use the CLI or TUI as usual:
+After `make run-pair`, open a bridge shell with the pair `.env` already loaded.
+The pair `.env` supplies `SOURCE__*` / `TARGET__*` connection settings; tuning and
+export behavior use the same shared `config/config.yaml` as a laptop workflow.
 
 ```bash
 make up-dev    # if db + bridge are not already running
@@ -451,5 +452,5 @@ tests/integration/
 │   ├── manifest/                    # Subscription manifest zip (gitignored)
 │   └── aap-installer-bundles/       # Downloaded bundles (gitignored)
 └── generated/
-    └── pairs/                       # Per-pair bridge configs (gitignored)
+    └── pairs/                       # Per-pair .env files (gitignored)
 ```
