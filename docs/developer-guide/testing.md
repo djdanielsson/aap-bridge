@@ -269,7 +269,7 @@ Once golden images are built, start any source/target pair instantly:
 # Start a pair
 make run-pair SOURCE=2.3 TARGET=2.6
 
-# Run aap-bridge in dry-run mode against the pair
+# Validate bridge can reach source and target AAP APIs
 make test-bridge SOURCE=2.3 TARGET=2.6
 
 # Reset to clean state (~10 seconds)

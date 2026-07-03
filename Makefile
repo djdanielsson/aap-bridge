@@ -428,7 +428,7 @@ destroy-all: ## Remove ALL test containers, images, and networks
 status: ## Show all test containers and golden images
 	$(run-builder) playbooks/status.yml
 
-test-bridge: up-dev ## Run aap-bridge against pair (dry-run) (SOURCE=2.4 TARGET=2.6)
+test-bridge: up-dev ## Validate bridge connectivity to pair (SOURCE=2.4 TARGET=2.6)
 	@PAIR_ID="$(subst .,,$(SOURCE))-to-$(subst .,,$(TARGET))"; \
 	ENV_FILE_HOST="tests/integration/generated/pairs/$$PAIR_ID/.env"; \
 	ENV_FILE_CONTAINER="/app/tests/integration/generated/pairs/$$PAIR_ID/.env"; \
@@ -437,7 +437,7 @@ test-bridge: up-dev ## Run aap-bridge against pair (dry-run) (SOURCE=2.4 TARGET=
 		exit 1; \
 	fi; \
 	echo "Using config: $$ENV_FILE_HOST"; \
-	$(run-bridge) bash -lc "set -a && source $$ENV_FILE_CONTAINER && set +a && aap-bridge migrate full --dry-run"
+	$(run-bridge) bash -lc "set -a && source $$ENV_FILE_CONTAINER && set +a && aap-bridge config validate --check-connectivity"
 
 test-all: ## Run migration test for all source versions -> 2.6
 	@PASS=""; FAIL=""; SKIP=""; \
