@@ -61,6 +61,7 @@
       ansible.builtin.debug:
         msg: |
           Golden image ready: {{ golden_image_prefix }}-{{ aap_version }}:latest
+          RW token saved:   tests/integration/generated/images/{{ aap_version | replace('.', '') }}_rw_token
 
           Next steps:
             # Push to registry:

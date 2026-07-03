@@ -32,87 +32,34 @@
     - api_check.stdout | default('') != '200'
     - not (ver_config.best_effort | default(false))
 
-- name: Create admin API token (RPM install - preauth)
-  ansible.builtin.command:
-    cmd: >
-      podman exec {{ container_name }}
-        awx-manage create_preauth_token --scope write --user admin
-  register: token_result_rpm
-  failed_when: false
-  when: ver_config.installer.method | default('rpm') == 'rpm'
+- name: Load version matrix for token and port calculation
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/../versions/matrix.yml"
 
-- name: Create admin API token (RPM install - oauth2 fallback)
-  ansible.builtin.command:
-    cmd: >
-      podman exec {{ container_name }}
-        awx-manage create_oauth2_token --user admin
-  register: token_result_rpm_fallback
-  failed_when: false
-  when:
-    - ver_config.installer.method | default('rpm') == 'rpm'
-    - token_result_rpm.stdout | default('') | trim | length == 0
-
-- name: Create admin API token (containerized install)
-  ansible.builtin.command:
-    cmd: >
-      podman exec --user aap -e XDG_RUNTIME_DIR=/run/user/1000
-        {{ container_name }}
-        podman exec automation-controller-web
-          awx-manage create_oauth2_token --user admin
-  register: token_result_containerized
-  failed_when: false
-  when: ver_config.installer.method | default('rpm') == 'containerized'
-
-- name: Save API token
-  vars:
-    _rpm_stdout: "{{ token_result_rpm.stdout | default('') }}"
-    _rpm_fb_stdout: "{{ token_result_rpm_fallback.stdout | default('') }}"
-    _ctr_stdout: "{{ token_result_containerized.stdout | default('') }}"
-    _raw_token: >-
-      {{ _rpm_stdout if _rpm_stdout | trim | length > 0
-         else (_rpm_fb_stdout if _rpm_fb_stdout | trim | length > 0
-         else _ctr_stdout) }}
+- name: Set build-time port base and gateway flag
   ansible.builtin.set_fact:
-    aap_api_token: "{{ (_raw_token | trim | split('\n') | last | trim) if _raw_token | trim | length > 0 else '' }}"
+    _build_port_base: "{{ 30000 + (version_index[aap_version] | int * 100) }}"
+    _gateway_enabled: "{{ ver_config.components.gateway.enabled | default(false) }}"
 
-- name: Debug token creation output
-  ansible.builtin.debug:
-    msg: |
-      RPM preauth: rc={{ token_result_rpm.rc | default('skipped') }} stdout='{{ token_result_rpm.stdout | default('') | trim }}'
-      RPM oauth2:  rc={{ token_result_rpm_fallback.rc | default('skipped') }} stdout='{{ token_result_rpm_fallback.stdout | default('') | trim }}'
-      Containerized: rc={{ token_result_containerized.rc | default('skipped') }} stdout='{{ token_result_containerized.stdout | default('') | trim }}'
-  when: aap_api_token | default('') | length == 0
-
-- name: Ensure generated pair directory exists
+- name: Ensure generated images directory exists
   ansible.builtin.file:
-    path: "{{ playbook_dir }}/../generated/pairs/{{ pair_id }}"
+    path: "{{ playbook_dir }}/../generated/images"
     state: directory
     mode: "0750"
-  when: pair_id | default('') | length > 0
-
-- name: Write token to generated config
-  ansible.builtin.copy:
-    content: "{{ aap_api_token }}"
-    dest: "{{ playbook_dir }}/../generated/pairs/{{ pair_id }}/{{ role_suffix }}_token"
-    mode: "0600"
-  when:
-    - pair_id | default('') | length > 0
-    - aap_api_token | default('') | length > 0
 
 - name: Fix AWX_ISOLATION_SHOW_PATHS (remove overlay mounts for container compat)
   ansible.builtin.command:
     cmd: >
       podman exec {{ container_name }}
         curl -sk -X PATCH
-        -H "Authorization: Bearer {{ aap_api_token }}"
+        -u admin:{{ aap_admin_password }}
         -H "Content-Type: application/json"
         https://localhost{{ controller_port }}{{ ver_config.api.controller_path }}/settings/jobs/
         -d '{"AWX_ISOLATION_SHOW_PATHS": ["/etc/pki/ca-trust:/etc/pki/ca-trust", "/usr/share/pki:/usr/share/pki"]}'
   failed_when: false
   changed_when: false
-  when:
-    - api_check.stdout | default('') == '200'
-    - aap_api_token | default('') | length > 0
+  no_log: true
+  when: api_check.stdout | default('') == '200'
 
 - name: Find subscription manifest
   ansible.builtin.find:
@@ -123,7 +70,6 @@
 - name: Upload subscription manifest
   when:
     - api_check.stdout | default('') == '200'
-    - aap_api_token | default('') | length > 0
     - manifest_files.files | length > 0
   block:
     - name: Copy manifest to container
@@ -138,13 +84,14 @@
             MANIFEST=$(base64 -w0 /tmp/manifest.zip)
             echo "{\"eula_accepted\": true, \"manifest\": \"$MANIFEST\"}" > /tmp/manifest_payload.json
             curl -sk -X POST \
-              -H "Authorization: Bearer {{ aap_api_token }}" \
+              -u admin:{{ aap_admin_password | quote }} \
               -H "Content-Type: application/json" \
               -d @/tmp/manifest_payload.json \
               https://localhost{{ controller_port }}{{ ver_config.api.controller_path }}/config/
           '
       register: manifest_result
       failed_when: false
+      no_log: true
 
     - name: Report manifest upload result
       ansible.builtin.debug:
@@ -159,6 +106,32 @@
       The AAP instance will be unlicensed. Place a manifest zip file in that directory
       to auto-apply subscriptions during builds.
   when: manifest_files.files | length == 0
+
+- name: Create golden-image RW token (controller or platform gateway)
+  ansible.builtin.include_role:
+    name: scoped_api_token
+  vars:
+    token_scope: write
+    token_description: "aap-bridge golden image ({{ aap_version }})"
+    port_base: "{{ _build_port_base }}"
+    container_name: "{{ container_name }}"
+    token_save_path: "{{ playbook_dir }}/../generated/images/{{ aap_version | replace('.', '') }}_rw_token"
+
+- name: Ensure generated pair directory exists
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/../generated/pairs/{{ pair_id }}"
+    state: directory
+    mode: "0750"
+  when: pair_id | default('') | length > 0
+
+- name: Write token to generated pair config (legacy pair builds)
+  ansible.builtin.copy:
+    content: "{{ scoped_api_token }}"
+    dest: "{{ playbook_dir }}/../generated/pairs/{{ pair_id }}/{{ role_suffix }}_token"
+    mode: "0600"
+  when:
+    - pair_id | default('') | length > 0
+  no_log: true
 
 - name: Check best-effort components
   when: api_check.stdout | default('') == '200'

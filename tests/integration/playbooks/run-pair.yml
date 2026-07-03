@@ -75,6 +75,12 @@
       changed_when: false
       failed_when: false
 
+    - name: Populate source test data
+      ansible.builtin.include_role:
+        name: populate_test_data
+      vars:
+        aap_version: "{{ source_version }}"
+
     - name: Create source API token
       ansible.builtin.include_role:
         name: api_token
@@ -82,12 +88,6 @@
         aap_version: "{{ source_version }}"
         container_name: "aap-{{ source_version | replace('.', '') }}-src"
         token_label: src
-
-    - name: Populate source test data
-      ansible.builtin.include_role:
-        name: populate_test_data
-      vars:
-        aap_version: "{{ source_version }}"
 
     # --- Target ---
     - name: Start target container
@@ -115,13 +115,11 @@
       changed_when: false
       failed_when: false
 
-    - name: Create target API token
+    - name: Install target RW token from golden image
       ansible.builtin.include_role:
-        name: api_token
+        name: pair_target_token
       vars:
         aap_version: "{{ target_version }}"
-        container_name: "aap-{{ target_version | replace('.', '') }}-tgt"
-        token_label: tgt
 
     # --- Generate bridge config ---
     - name: Generate bridge configuration

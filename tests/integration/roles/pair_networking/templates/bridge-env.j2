@@ -17,7 +17,7 @@ SOURCE__URL=https://host.containers.internal:{{ src_envoy_port }}
 {% else %}
 SOURCE__URL=https://host.containers.internal:{{ src_controller_port }}
 {% endif %}
-SOURCE__TOKEN="{{ source_token }}"
+SOURCE__TOKEN="{{ source_token }}"  # RO
 SOURCE__VERIFY_SSL=false
 SOURCE__TIMEOUT=30
 
@@ -26,7 +26,7 @@ TARGET__URL=https://host.containers.internal:{{ tgt_envoy_port }}
 {% else %}
 TARGET__URL=https://host.containers.internal:{{ tgt_controller_port }}
 {% endif %}
-TARGET__TOKEN="{{ target_token }}"
+TARGET__TOKEN="{{ target_token }}"  # RW
 TARGET__VERIFY_SSL=false
 TARGET__TIMEOUT=30
 

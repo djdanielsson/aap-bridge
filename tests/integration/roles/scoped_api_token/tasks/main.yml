@@ -1,0 +1,120 @@
+---
+# Create a scoped API token and optionally persist it to disk.
+#
+# Required vars:
+#   aap_version        - AAP version (e.g. "2.6")
+#   token_scope        - "read" or "write"
+#   token_description  - token description field
+#   port_base          - host port block (e.g. 30047 = build envoy for 2.6)
+#
+# Optional:
+#   container_name     - required for RPM preauth (AAP 2.3 and earlier)
+#   token_save_path    - write token secret to this host path (mode 0600)
+
+- name: Load version matrix
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/../versions/matrix.yml"
+
+- name: Set installer and gateway flags
+  ansible.builtin.set_fact:
+    _installer_method: "{{ aap_versions[aap_version].installer.method }}"
+    _gateway_enabled: "{{ aap_versions[aap_version].components.gateway.enabled | default(false) }}"
+    _ver_config: "{{ aap_versions[aap_version] }}"
+
+- name: Calculate host-published API endpoints
+  ansible.builtin.set_fact:
+    _api_port: >-
+      {{
+        (port_base | int + port_offset_envoy | int)
+        if _gateway_enabled
+        else (port_base | int + port_offset_controller | int)
+      }}
+    _token_api_path: "{{ '/api/gateway/v1/tokens/' if _gateway_enabled else '/api/v2/tokens/' }}"
+    _ping_path: >-
+      {{
+        (_ver_config.api.gateway_path | default('/api/gateway/v1')) + '/ping/'
+        if _gateway_enabled
+        else (_ver_config.api.controller_path | default('/api/v2')) + '/ping/'
+      }}
+
+- name: Wait for host-published API
+  ansible.builtin.uri:
+    url: "https://127.0.0.1:{{ _api_port }}{{ _ping_path }}"
+    method: GET
+    validate_certs: false
+    status_code: [200]
+  register: _api_ping
+  retries: "{{ token_retries }}"
+  delay: "{{ token_delay }}"
+  until: _api_ping.status == 200
+
+- name: Create scoped token via tokens API (AAP 2.4+ or platform gateway)
+  when: _installer_method == 'containerized' or (version_index[aap_version] | int) >= 7
+  block:
+    - name: POST scoped token to AAP tokens API
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:{{ _api_port }}{{ _token_api_path }}"
+        method: POST
+        user: admin
+        password: "{{ aap_admin_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        body_format: json
+        body:
+          description: "{{ token_description }}"
+          scope: "{{ token_scope }}"
+        status_code: [201]
+      register: _token_api
+      retries: "{{ token_retries }}"
+      delay: "{{ token_delay }}"
+      until: _token_api.status == 201 and (_token_api.json.token | default('') | length > 0)
+      no_log: true
+
+    - name: Resolve tokens API result
+      ansible.builtin.set_fact:
+        scoped_api_token: "{{ _token_api.json.token | default('') | trim }}"
+
+- name: Create scoped preauth token (RPM, AAP 2.3 and earlier)
+  when:
+    - _installer_method != 'containerized'
+    - (version_index[aap_version] | int) < 7
+  block:
+    - name: Run create_preauth_token with scope
+      ansible.builtin.command:
+        cmd: >
+          podman exec {{ container_name }}
+            awx-manage create_preauth_token --scope {{ token_scope }} --user admin
+      register: _token_preauth
+      retries: "{{ token_retries }}"
+      delay: "{{ token_delay }}"
+      until: _token_preauth.rc == 0 and (_token_preauth.stdout | default('') | trim | length > 0)
+      changed_when: false
+      no_log: true
+
+    - name: Resolve preauth token result
+      ansible.builtin.set_fact:
+        scoped_api_token: "{{ (_token_preauth.stdout | default('') | trim | split('\n') | last | trim) if (_token_preauth.stdout | default('') | trim | length > 0) else '' }}"
+
+- name: Require scoped API token
+  ansible.builtin.fail:
+    msg: >
+      Could not create {{ token_scope }} API token for AAP {{ aap_version }}.
+      Create one manually, for example:
+      {% if _gateway_enabled %}
+        curl -sk -u admin:PASSWORD -H Content-Type:application/json
+          -d '{"description":"{{ token_description }}","scope":"{{ token_scope }}"}'
+          https://localhost:{{ _api_port }}{{ _token_api_path }}
+      {% else %}
+        curl -sk -u admin:PASSWORD -H Content-Type:application/json
+          -d '{"description":"{{ token_description }}","scope":"{{ token_scope }}"}'
+          https://localhost:{{ _api_port }}/api/v2/tokens/
+      {% endif %}
+  when: scoped_api_token | default('') | length == 0
+
+- name: Save scoped API token to file
+  ansible.builtin.copy:
+    content: "{{ scoped_api_token }}"
+    dest: "{{ token_save_path }}"
+    mode: "0600"
+  when: token_save_path | default('') | length > 0
+  no_log: true
