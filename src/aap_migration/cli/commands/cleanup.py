@@ -31,7 +31,7 @@ from aap_migration.config import (
     normalized_credential_skip_names,
     normalized_execution_environment_skip_names,
 )
-from aap_migration.migration.database import get_session
+from aap_migration.migration.database import get_session, normalize_database_url
 from aap_migration.migration.models import IDMapping, MigrationProgress
 from aap_migration.reporting.live_progress import MigrationProgressDisplay
 from aap_migration.resources import CLEANUP_ORDER, get_endpoint
@@ -1544,7 +1544,7 @@ def cleanup(
             total_errors = 0
 
             # Clear database first (log to file only)
-            database_url = str(ctx.config.state.db_path)
+            database_url = normalize_database_url(str(ctx.config.state.db_path))
             cleared_progress, deleted_mappings = clear_database(database_url)
             logger.info(
                 "database_cleared",

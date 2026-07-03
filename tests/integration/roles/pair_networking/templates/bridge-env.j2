@@ -23,7 +23,10 @@ TARGET__TOKEN="{{ target_token }}"
 TARGET__VERIFY_SSL=false
 TARGET__TIMEOUT=30
 
-MIGRATION_STATE_DB_PATH=postgresql://aap_migration_user:{{ aap_pg_password }}@db:5432/aap_migration
+{% set pg_user = lookup('env', 'POSTGRESQL_USER') | default('aap_migration_user', true) %}
+{% set pg_pass = lookup('env', 'POSTGRESQL_PASSWORD') | default(aap_pg_password, true) %}
+{% set pg_db = lookup('env', 'POSTGRESQL_DATABASE') | default('aap_migration', true) %}
+MIGRATION_STATE_DB_PATH=postgresql://{{ pg_user }}:{{ pg_pass | urlencode }}@db:5432/{{ pg_db }}
 
 DRY_RUN=false
 RESUME_ENABLED=true

@@ -357,7 +357,7 @@ ensure-podman-socket: ## Verify podman API socket is available for integration b
 	fi
 
 define run-builder
-	@sock="$${XDG_RUNTIME_DIR:-/run/user/$$(id -u)}/podman/podman.sock"; \
+	sock="$${XDG_RUNTIME_DIR:-/run/user/$$(id -u)}/podman/podman.sock"; \
 	if [ ! -S "$$sock" ]; then \
 		echo "Error: Podman API socket not found at $$sock"; \
 		echo "Start it with: systemctl --user enable --now podman.socket"; \
@@ -372,6 +372,9 @@ define run-builder
 		$(if $(RHSM_USER),-e RHSM_USER=$(RHSM_USER)) \
 		$(if $(RHSM_PASS),-e RHSM_PASS) \
 		$(if $(RH_TOKEN),-e RH_TOKEN) \
+		-e POSTGRESQL_USER \
+		-e POSTGRESQL_PASSWORD \
+		-e POSTGRESQL_DATABASE \
 		$(BUILDER_IMAGE) $(VERBOSITY) $(DEBUG_ARGS) $(VAULT_ARGS)
 endef
 
@@ -382,10 +385,10 @@ build-builder: ## Build the ansible builder image
 		tests/integration/
 
 build-aap-bases: ## Build UBI base images for AAP containers
-	$(run-builder) playbooks/build-base-images.yml
+	@$(run-builder) playbooks/build-base-images.yml
 
 build-aap: ## Build AAP golden image (VERSION=2.4)
-	$(run-builder) playbooks/build-instance.yml \
+	@$(run-builder) playbooks/build-instance.yml \
 		-e aap_version=$(VERSION)
 
 build-aap-all: ## Build golden images for ALL versions
@@ -395,12 +398,12 @@ build-aap-all: ## Build golden images for ALL versions
 	done
 
 push-aap: ## Push golden image to registry (VERSION=2.4 REGISTRY=quay.io/myorg)
-	$(run-builder) playbooks/push-image.yml \
+	@$(run-builder) playbooks/push-image.yml \
 		-e aap_version=$(VERSION) \
 		-e image_registry=$(REGISTRY)
 
 pull-aap: ## Pull golden image from registry (VERSION=2.4 REGISTRY=quay.io/myorg)
-	$(run-builder) playbooks/pull-image.yml \
+	@$(run-builder) playbooks/pull-image.yml \
 		-e aap_version=$(VERSION) \
 		-e image_registry=$(REGISTRY)
 
@@ -409,6 +412,7 @@ list-golden: ## List all golden images
 		--format 'table {{.Repository}}:{{.Tag}}\t{{.Size}}\t{{.Created}}'
 
 run-pair: ## Start AAP pair from golden images (SOURCE=2.4 TARGET=2.6)
+	@set -a && [ -f .env ] && . ./.env; set +a; \
 	$(run-builder) playbooks/run-pair.yml \
 		-e source_version=$(SOURCE) \
 		-e target_version=$(TARGET)
@@ -417,20 +421,21 @@ stop-pair: ## Stop AAP pair containers (SOURCE=2.4 TARGET=2.6)
 	-podman stop aap-$(subst .,,$(SOURCE))-src aap-$(subst .,,$(TARGET))-tgt
 
 reset-pair: ## Reset pair to clean state (SOURCE=2.4 TARGET=2.6)
+	@set -a && [ -f .env ] && . ./.env; set +a; \
 	$(run-builder) playbooks/reset-pair.yml \
 		-e source_version=$(SOURCE) \
 		-e target_version=$(TARGET)
 
 destroy-pair: ## Remove pair containers and network (SOURCE=2.4 TARGET=2.6)
-	$(run-builder) playbooks/destroy-pair.yml \
+	@$(run-builder) playbooks/destroy-pair.yml \
 		-e source_version=$(SOURCE) \
 		-e target_version=$(TARGET)
 
 destroy-all: ## Remove ALL test containers, images, and networks
-	$(run-builder) playbooks/destroy-all.yml
+	@$(run-builder) playbooks/destroy-all.yml
 
 status: ## Show all test containers and golden images
-	$(run-builder) playbooks/status.yml
+	@$(run-builder) playbooks/status.yml
 
 define require-pair-env
 	@if [ ! -f "$(PAIR_ENV_HOST)" ]; then \
