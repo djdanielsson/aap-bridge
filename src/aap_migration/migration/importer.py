@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from aap_migration.client.aap_target_client import AAPTargetClient
-from aap_migration.client.api_layout import normalize_rbac_content_type, role_definition_api_base
+from aap_migration.client.api_layout import (
+    ApiMode,
+    normalize_rbac_content_type,
+    role_definition_api_base,
+    uses_gateway_api,
+)
 from aap_migration.client.bulk_operations import BulkOperations
 from aap_migration.client.exceptions import APIError, ConflictError
 from aap_migration.config import (
@@ -487,8 +492,13 @@ class ResourceImporter:
                     dep_resource_type=dep_resource_type,
                 )
 
-                # Get mapped target ID
-                target_id = self.state.get_mapped_id(dep_resource_type, dep_source_id)
+                # Get mapped target ID (controller org FKs resolved by name on gateway topology)
+                target_id = await self._resolve_dependency_target_id(
+                    resource_type,
+                    field,
+                    dep_resource_type,
+                    dep_source_id,
+                )
 
                 logger.debug(
                     "dependency_mapping_lookup",
@@ -632,6 +642,45 @@ class ResourceImporter:
         """
         # Use class-level DEPENDENCIES or return empty dict
         return self.DEPENDENCIES
+
+    async def _resolve_dependency_target_id(
+        self,
+        resource_type: str,
+        field: str,
+        dep_resource_type: str,
+        dep_source_id: int | Any,
+    ) -> int | None:
+        """Resolve a dependency source ID to a target-side primary key.
+
+        On gateway topology, organization mappings store gateway PKs. Resources
+        posted to the controller API need organization FKs resolved on the
+        controller base (by name lookup), not the gateway mapping alone.
+        """
+        if (
+            field == "organization"
+            and dep_resource_type == "organizations"
+            and _resource_uses_controller_api(self.client, resource_type)
+        ):
+            layout = self.client.api_layout
+            if layout and layout.controller_base:
+                try:
+                    org_source_id = int(dep_source_id)
+                except (TypeError, ValueError):
+                    return None
+                return await _resolve_organization_id_for_controller(
+                    self.state,
+                    self.client,
+                    org_source_id,
+                    layout.controller_base,
+                )
+            return None
+
+        try:
+            dep_source_id = int(dep_source_id)
+        except (TypeError, ValueError):
+            return None
+
+        return self.state.get_mapped_id(dep_resource_type, dep_source_id)
 
     async def _handle_conflict(
         self, resource_type: str, source_id: int, data: dict[str, Any]
@@ -3733,7 +3782,9 @@ class CredentialImporter(ResourceImporter):
 
             if field in data and data[field]:
                 source_id = data[field]
-                target_id = self.state.get_mapped_id(dep_resource_type, source_id)
+                target_id = await self._resolve_dependency_target_id(
+                    resource_type, field, dep_resource_type, source_id
+                )
                 if target_id:
                     resolved[field] = target_id
                     logger.debug(
@@ -4815,7 +4866,12 @@ class ConstructedInventoryImporter(ResourceImporter):
             # Resolve organization
             org_source_id = inventory.get("organization")
             if org_source_id:
-                target_org_id = self.state.get_mapped_id("organizations", org_source_id)
+                target_org_id = await self._resolve_dependency_target_id(
+                    "constructed_inventories",
+                    "organization",
+                    "organizations",
+                    org_source_id,
+                )
                 if target_org_id:
                     inventory["organization"] = target_org_id
                 else:
@@ -5083,6 +5139,76 @@ async def _resolve_content_object_target_id(
         name=content_object_name,
         source_id=source_id,
     )
+    return None
+
+
+def _resource_uses_controller_api(client: Any, resource_type: str) -> bool:
+    """Return True when *resource_type* is imported via the controller API base."""
+    layout = getattr(client, "api_layout", None)
+    if layout is None or layout.mode is not ApiMode.GATEWAY:
+        return False
+    try:
+        endpoint = get_endpoint(resource_type)
+    except KeyError:
+        return False
+    return not uses_gateway_api(layout, endpoint)
+
+
+async def _lookup_organization_id_on_base(
+    client: Any,
+    api_base: str,
+    org_name: str,
+) -> int | None:
+    """Look up an organization id by name on a specific API base."""
+    try:
+        response = await client.get_on_base(
+            api_base, "organizations/", params={"name": org_name, "page_size": 1}
+        )
+        results = response.get("results", [])
+        if results:
+            return int(results[0]["id"])
+    except Exception:
+        return None
+    return None
+
+
+async def _resolve_organization_id_for_controller(
+    state: Any,
+    client: Any,
+    source_id: int,
+    controller_api_base: str,
+) -> int | None:
+    """Return an organization pk valid for controller-scoped resource creates.
+
+    Organizations are created/mapped on the gateway API, but credentials,
+    projects, inventories, and similar resources reference organization FKs on
+    the controller API. Resolve by name on the controller base when gateway
+    topology is in use.
+    """
+    layout = client.api_layout
+
+    if layout is None or layout.mode is not ApiMode.GATEWAY:
+        return state.get_mapped_id("organizations", source_id)
+
+    org_name = state.get_mapping_source_name("organizations", source_id)
+
+    if org_name:
+        resolved = await _lookup_organization_id_on_base(
+            client, controller_api_base, org_name
+        )
+        if resolved is not None:
+            return resolved
+
+    mapped_id = state.get_mapped_id("organizations", source_id)
+    if mapped_id is not None:
+        try:
+            await client.get_on_base(
+                controller_api_base, f"organizations/{mapped_id}/"
+            )
+            return mapped_id
+        except Exception:
+            pass
+
     return None
 
 

@@ -89,6 +89,14 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Import – Controller Organization FKs (Gateway Targets)**: Organization dependencies
+  for controller-scoped resources (credentials, projects, inventories, etc.) are now
+  resolved by org name on the controller API base instead of using gateway org PKs from
+  `id_mappings`; fixes import failures such as `Invalid pk "N" - object does not exist.
+  (organization)` on AAP 2.6+ targets
+- **Credentials – Import Rerun After Failure**: Failed credential imports now call
+  `mark_failed()` so a subsequent import run retries them instead of treating
+  `in_progress` progress as already migrated
 - **Credentials – Same-Name Different Types**: Credentials sharing a name but with
   different credential types were silently collapsed to one entry; the precheck and
   importer now key on `(name, credential_type)` so both survive

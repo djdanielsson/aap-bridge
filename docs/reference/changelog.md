@@ -43,6 +43,9 @@ in the repository.
 
 **Bug Fixes:**
 
+- Controller organization FK resolution on gateway targets (lookup org by name on the
+  controller API for credentials and other controller-scoped imports)
+- Credential import reruns retry previously failed resources instead of skipping them
 - Credential deduplication: same-name/different-type and non-unique name+org+type cases
   handled correctly
 - Batch precheck scoping fixed for org-scoped, parent-scoped, notification template, and
