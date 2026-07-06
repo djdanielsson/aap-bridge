@@ -89,6 +89,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Project Sync – Phase 2 Wait Timeout**: Phase 2 project patching now waits for SCM
+  sync using `project_sync_timeout` instead of `project_patch_batch_interval`, which
+  caused false sync failures when batches were still running; stale `failed` project
+  status from a prior job is ignored until the current sync becomes active
 - **Import – Controller Organization FKs (Gateway Targets)**: Organization dependencies
   for controller-scoped resources (credentials, projects, inventories, etc.) are now
   resolved by org name on the controller API base instead of using gateway org PKs from

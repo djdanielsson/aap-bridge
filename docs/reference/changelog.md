@@ -43,6 +43,8 @@ in the repository.
 
 **Bug Fixes:**
 
+- Phase 2 project sync wait uses `project_sync_timeout` (not batch interval); ignores
+  stale failed status until the current sync job is active
 - Controller organization FK resolution on gateway targets (lookup org by name on the
   controller API for credentials and other controller-scoped imports)
 - Credential import reruns retry previously failed resources instead of skipping them

@@ -3923,6 +3923,8 @@ async def wait_for_project_sync(
     timeout: int = 600,
     poll_interval: int = 10,
     progress_callback: Callable[[int, int, int], None] | None = None,
+    *,
+    ignore_stale_failure: bool = False,
 ) -> tuple[int, int, list[int]]:
     """Wait for projects to complete SCM sync after import.
 
@@ -3936,6 +3938,10 @@ async def wait_for_project_sync(
         timeout: Maximum time to wait in seconds (default 600 = 10 minutes)
         poll_interval: Time between status checks in seconds (default 10)
         progress_callback: Optional callback for progress updates (completed, total)
+        ignore_stale_failure: When True, do not treat failed/error/canceled as terminal
+            until the project has entered pending/waiting/running during this wait. Use
+            after PATCH or POST update/ so a prior job's failed status is not mistaken
+            for the current sync.
 
     Returns:
         Tuple of (synced_count, failed_count, list_of_failed_project_ids)
@@ -3955,6 +3961,8 @@ async def wait_for_project_sync(
     start_time = time.time()
     synced: set[int] = set()
     failed: set[int] = set()
+    seen_active: set[int] = set()
+    active_statuses = frozenset({"pending", "waiting", "running"})
 
     while True:
         elapsed = time.time() - start_time
@@ -3997,16 +4005,26 @@ async def wait_for_project_sync(
                         project_id=project_id,
                         name=project.get("name"),
                     )
-                # Project sync failed
+                elif status in active_statuses:
+                    seen_active.add(project_id)
+                # Project sync failed (ignore stale failed until active seen when requested)
                 elif status in ("failed", "error", "canceled"):
-                    failed.add(project_id)
-                    logger.warning(
-                        "project_sync_failed",
-                        project_id=project_id,
-                        name=project.get("name"),
-                        status=status,
-                    )
-                # Still syncing (pending, waiting, running) - continue waiting
+                    if not ignore_stale_failure or project_id in seen_active:
+                        failed.add(project_id)
+                        logger.warning(
+                            "project_sync_failed",
+                            project_id=project_id,
+                            name=project.get("name"),
+                            status=status,
+                        )
+                    else:
+                        logger.debug(
+                            "project_sync_stale_failure_ignored",
+                            project_id=project_id,
+                            name=project.get("name"),
+                            status=status,
+                        )
+                # Other statuses - continue waiting
 
             except Exception as e:
                 logger.warning(
