@@ -3521,6 +3521,11 @@ class CredentialImporter(ResourceImporter):
         if not name:
             logger.error("credential_missing_name", source_id=source_id)
             self.stats["error_count"] += 1
+            self.state.mark_failed(
+                resource_type=resource_type,
+                source_id=source_id,
+                error_message="Credential missing name",
+            )
             return None
 
         # Clean up transformer markers
@@ -3647,6 +3652,11 @@ class CredentialImporter(ResourceImporter):
                 error=str(e),
             )
             self.stats["error_count"] += 1
+            self.state.mark_failed(
+                resource_type=resource_type,
+                source_id=source_id,
+                error_message=str(e),
+            )
             self.import_errors.append(
                 {
                     "resource_type": resource_type,
