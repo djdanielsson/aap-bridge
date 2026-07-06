@@ -22,6 +22,7 @@ from aap_migration.cli.commands.patch_projects import patch_project_scm_details
 from aap_migration.cli.context import MigrationContext
 from aap_migration.cli.decorators import handle_errors, pass_context, requires_config
 from aap_migration.cli.utils import (
+    confirm_overwrite_directory,
     echo_error,
     echo_info,
     echo_success,
@@ -367,10 +368,9 @@ def export(
     if records_per_file is None:
         records_per_file = ctx.config.export.records_per_file
 
-    # Check if directory exists
-    if output.exists() and not force:
-        if not yes and not click.confirm(f"Directory {output} exists. Overwrite?"):
-            raise click.exceptions.Exit(0)
+    # Check if directory already has export data
+    if not confirm_overwrite_directory(output, force=force, yes=yes):
+        raise click.exceptions.Exit(0)
 
     # Create directory structure
     output.mkdir(parents=True, exist_ok=True)

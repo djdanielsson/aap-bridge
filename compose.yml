@@ -49,15 +49,17 @@ services:
       - /bin/sh
       - -ec
       - |
-        mkdir -p /app/exports /app/reports /app/logs
+        mkdir -p /app/exports /app/xformed /app/reports /app/logs /app/schemas
         touch /tmp/ready
         exec sleep infinity
     security_opt:
       - label=disable
     volumes:
-      - bridge-exports:/app/exports
-      - bridge-reports:/app/reports
-      - bridge-logs:/app/logs
+      - ./exports:/app/exports
+      - ./xformed:/app/xformed
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./schemas:/app/schemas
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/ready"]
       interval: 2s
@@ -89,10 +91,12 @@ services:
       - ./config:/app/config:ro
       - ./src:/app/src
       - ./tests/unit:/app/tests/unit
-      - bridge-exports:/app/exports
-      - bridge-reports:/app/reports
+      - ./exports:/app/exports
+      - ./xformed:/app/xformed
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./schemas:/app/schemas
       - ./tests/integration/generated:/app/tests/integration/generated
-      - bridge-logs:/app/logs
     working_dir: /app
     entrypoint: ["sleep", "infinity"]
 
@@ -118,6 +122,7 @@ services:
     volumes:
       - ./config:/app/config:ro
       - ./exports:/app/exports
+      - ./xformed:/app/xformed
       - ./reports:/app/reports
       - ./schemas:/app/schemas
 
@@ -132,6 +137,3 @@ services:
 
 volumes:
   pgdata:
-  bridge-exports:
-  bridge-reports:
-  bridge-logs:

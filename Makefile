@@ -262,6 +262,7 @@ up: ensure-api-ui-images ## Start db + engine + ui using prebuilt images
 	$(COMPOSE) up -d --no-build db engine ui
 
 up-dev: ensure-bridge-dev-image ## Start db + bridge using prebuilt images
+	mkdir -p exports xformed reports logs schemas
 	$(COMPOSE) up -d --no-build db bridge
 
 down: ## Stop all containers

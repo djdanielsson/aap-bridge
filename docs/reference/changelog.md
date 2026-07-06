@@ -41,8 +41,15 @@ in the repository.
   types and credentials before projects; users and teams after all content objects).
   Export progress display reflects this order even with parallel export enabled.
 
+**Added:**
+
+- Bridge dev container bind-mounts `exports`, `xformed`, `reports`, `logs`, and `schemas`
+  from the repo root (matching engine) so artifacts are visible on the host
+
 **Bug Fixes:**
 
+- Cleanup clears export/transform contents without removing mount points; export/transform
+  overwrite prompts only when directories contain data
 - Phase 2 project sync wait uses `project_sync_timeout` (not batch interval); ignores
   stale failed status until the current sync job is active
 - Controller organization FK resolution on gateway targets (lookup org by name on the

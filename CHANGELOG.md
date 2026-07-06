@@ -87,8 +87,17 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   read/write target API tokens, version-driven API routing, and corrected
   `SECURITY.md` to use `SOURCE__TOKEN`/`TARGET__TOKEN`
 
+### Added
+
+- **Testing – Host-Visible Migration Artifacts**: Bridge dev container bind-mounts
+  `exports`, `xformed`, `reports`, `logs`, and `schemas` from the repo root (matching
+  the engine service) so prep/export/transform output is visible on the host
+
 ### Fixed
 
+- **Testing – Cleanup and Overwrite Prompts**: Cleanup clears export/transform directory
+  contents without removing mount points; export and transform only prompt to overwrite
+  when output directories contain data (not empty dirs left after cleanup)
 - **Project Sync – Phase 2 Wait Timeout**: Phase 2 project patching now waits for SCM
   sync using `project_sync_timeout` instead of `project_patch_batch_interval`, which
   caused false sync failures when batches were still running; stale `failed` project

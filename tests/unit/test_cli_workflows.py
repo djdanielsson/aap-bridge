@@ -88,6 +88,8 @@ async def test_run_connection_cleanup_uses_cli_cleanup_helpers(tmp_path: Path) -
     mock_ctx.config.paths.transform_dir = str(tmp_path / "xformed")
     (tmp_path / "exports").mkdir()
     (tmp_path / "xformed").mkdir()
+    (tmp_path / "exports" / "metadata.json").write_text("{}")
+    (tmp_path / "xformed" / "metadata.json").write_text("{}")
     mock_client = AsyncMock()
     mock_client.close = AsyncMock()
 

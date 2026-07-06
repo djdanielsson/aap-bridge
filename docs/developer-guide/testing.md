@@ -193,7 +193,9 @@ make reset-pair SOURCE=2.4 TARGET=2.6
 - `make up-dev` is a shortcut for `podman compose up -d db bridge`.
 - The bridge container mounts `./src` and `./tests/unit` from the host so `make c-test`
   and other `c-*` targets run against your working tree without rebuilding the image.
-- The bridge container stores logs, exports, and reports in compose-managed volumes under `/app`.
+- The bridge container bind-mounts `./exports`, `./xformed`, `./reports`, `./logs`, and
+  `./schemas` from the repo root (same paths as the engine service) so migration artifacts
+  are visible on the host.
 - `make down` stops the bridge and database containers when you are finished.
 
 ### Verify

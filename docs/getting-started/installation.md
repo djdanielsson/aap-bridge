@@ -142,11 +142,10 @@ make shell
 ### Notes
 
 - `compose.yml` uses `registry.redhat.io/rhel9/postgresql-15` for the bundled database service.
-- The compose stack now prepares its own writable volumes, so `podman compose up -d db bridge` works without any Makefile ownership helpers.
-- `make up-dev` is a thin wrapper around the same compose workflow if you prefer the shortcut.
-- The bridge container mounts `./src` and `./tests/unit` from the host so `make c-test`
-  and other `c-*` targets use your working tree without rebuilding the image.
-- The bridge container stores logs, exports, and reports in compose-managed volumes mounted under `/app`.
+- `make up-dev` creates `./exports`, `./xformed`, `./reports`, `./logs`, and `./schemas` on the
+  host and starts the db + bridge services.
+- The bridge container bind-mounts those directories (and `./src`, `./tests/unit`) so migration
+  artifacts and your working tree are visible on the host without rebuilding the image.
 - The container workflow is intended for the CLI/TUI path; the browser workflow uses the same `.env` from `make init-env` with the dedicated engine and UI services described below.
 
 ## Web UI
