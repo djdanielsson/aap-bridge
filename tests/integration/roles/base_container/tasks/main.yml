@@ -121,6 +121,10 @@
         -v {{ container_name }}-storage:/home/aap/.local/share/containers/storage
         --memory {{ ver_config.resource_requirements.ram_gb | default(default_ram_gb) }}g
         --cpus {{ ver_config.resource_requirements.cpus | default(default_cpus) }}
+        --pids-limit {{ container_pids_limit | default(-1) }}
+        --ulimit nproc={{ container_ulimit_nproc | default(65535) }}:65535
+        --ulimit nofile={{ container_ulimit_nofile | default(65536) }}:65536
+        --shm-size {{ container_shm_size | default('1g') }}
         {% for pm in port_mappings %}
         -p {{ pm }}
         {% endfor %}

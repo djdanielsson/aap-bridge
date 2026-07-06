@@ -25,6 +25,19 @@ golden_image_prefix: "{{ image_registry }}/{{ image_prefix }}"
 default_ram_gb: 12
 default_cpus: 4
 
+# Outer podman container limits (beyond --memory / --cpus).
+# Project SCM syncs spawn nested podman/crun isolation containers; default podman
+# pids_limit (2048) and nproc ulimit are too low and cause "can't start new thread".
+# These apply at `podman run` and cannot be baked into the golden image.
+container_pids_limit: -1
+container_ulimit_nproc: 65535
+container_ulimit_nofile: 65536
+container_shm_size: 1g
+
+# Inner limits (limits.d, systemd TasksMax, ~aap/.config/containers/containers.conf)
+# are baked into the UBI9 base image (Containerfile.ubi9-init) and committed into
+# golden images — no runtime Ansible task needed after rebuild.
+
 # Port allocation scheme
 # Source gets ports in the 10000 range, target in 20000 range.
 # Each version has a unique 100-port block within its range.

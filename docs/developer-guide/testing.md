@@ -44,6 +44,60 @@ This is a permanent, system-wide setting that survives reboots. It is a common t
 container-heavy development machines. To undo it, delete `/etc/sysctl.d/99-aap-bridge.conf`
 and run `sudo sysctl --system`.
 
+### Process and PID limits (nested podman)
+
+AAP 2.5+ golden images run **podman inside podman**. Each project SCM sync spawns an
+isolated execution container via rootless podman (user `aap`). Failures such as
+`RuntimeError: can't start new thread`, `crun: resource temporarily unavailable`, or
+`Unable to find process isolation executable: podman` usually mean **PID/thread limits**,
+not insufficient CPU or RAM.
+
+Podman's default **`pids_limit` is 2048** per container. Several concurrent SCM syncs
+each spawn nested containers and threads; the limit is hit quickly (often around three
+concurrent syncs).
+
+The test infrastructure raises limits at two layers:
+
+| Layer | Where configured | Baked into golden image? |
+|-------|------------------|--------------------------|
+| Outer `podman run` | `base_container` role (`container_pids_limit`, etc. in `group_vars/all.yml`) | **No** — applied every `run-pair` / `reset-pair` |
+| Inner limits (`limits.d`, systemd `TasksMax`, `~aap/.config/containers/containers.conf`) | `Containerfile.ubi9-init` | **Yes** — committed with `make build-aap` |
+
+Inner settings (nested rootless podman `pids_limit = 0`, `nproc`/`nofile` for user `aap`) live in
+the UBI9 base image and survive `podman commit` into the golden image. Rebuild after changing
+them:
+
+```bash
+make build-aap-bases    # if Containerfile.ubi9-init changed
+make build-aap VERSION=2.6
+make reset-pair SOURCE=2.4 TARGET=2.6
+```
+
+Outer `--pids-limit`, `--ulimit`, and `--shm-size` are **not** in the image; they are set when
+the pair container is created. Override via Ansible `-e` (e.g. `-e container_pids_limit=-1`).
+
+**Inspect limits on a running target:**
+
+```bash
+make shell-tgt TARGET=2.6
+
+# Outer container (from host)
+podman inspect aap-26-tgt --format 'PidsLimit={{.HostConfig.PidsLimit}}'
+
+# Inside outer container
+ulimit -u
+cat /sys/fs/cgroup/pids.max 2>/dev/null || true
+
+# Nested rootless podman (as aap)
+su - aap
+export XDG_RUNTIME_DIR=/run/user/1000
+podman info --format '{{.Host.PidsLimit}}'
+cat ~/.config/containers/containers.conf
+```
+
+If limits are still too low after reset, keep bridge `project_patch_batch_size` at **3**
+for nested test pairs while re-testing the new ceiling.
+
 ### Podman API socket
 
 Integration builds run Ansible in a builder container that drives the host Podman
@@ -423,6 +477,8 @@ automatically. Common issues:
 | `loginctl enable-linger` fails | Fixed: `systemd-logind` unmasked |
 | `sysctl: Read-only file system` | Fixed: containers run privileged |
 | `add_key: quota exceeded` | Raise `kernel.keys.maxkeys` (see Prerequisites) |
+| `can't start new thread` / `crun: resource temporarily unavailable` | PID/thread limits on nested podman; see **Process and PID limits** above, then `make reset-pair` |
+| `storage/overlay/tempdirs: permission denied` | Run `chown -R aap:aap /home/aap/.local/share/containers/storage` inside the target container, or `make reset-pair` (ownership fix runs at start) |
 
 ## File Layout
 
