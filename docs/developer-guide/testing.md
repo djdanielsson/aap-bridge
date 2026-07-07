@@ -154,6 +154,25 @@ make test-bridge SOURCE=2.4 TARGET=2.6
 make reset-pair SOURCE=2.4 TARGET=2.6
 ```
 
+### Step reference
+
+| Step | Command(s) | Detailed below |
+|------|------------|----------------|
+| 1 | `make init-env` | [Bridge and compose setup](#bridge-and-compose-setup) |
+| 2 | `podman login registry.redhat.io` | [Bridge and compose setup](#bridge-and-compose-setup) |
+| 3 | Manifest zip in `tests/integration/files/manifest/` | [Prerequisites → Subscription Manifest](#subscription-manifest) |
+| 4 | RHSM, API token, AAP passwords | [Secrets Management](#secrets-management) |
+| 5 | `make build`, `make up-dev` | [Bridge and compose setup](#bridge-and-compose-setup) |
+| 6 | `make c-test` | [Bridge and compose setup](#bridge-and-compose-setup) |
+| 7 | `make build-builder` | [Building golden images → Integration toolchain](#integration-toolchain) |
+| 8 | `make build-aap-bases` | [Building golden images → Integration toolchain](#integration-toolchain) |
+| 9 | `make build-aap VERSION=…` | [Building AAP Golden Images](#building-aap-golden-images) |
+| 10 | `make run-pair`, `make test-bridge` | [Running Test Pairs](#running-test-pairs) |
+| 11 | `make reset-pair` | [Running Test Pairs](#running-test-pairs) |
+
+Teardown (not in the numbered flow above): `make down-pair`, `make destroy-pair`, and
+`make down` — see [Notes](#notes) and [Running Test Pairs](#running-test-pairs).
+
 ### Notes
 
 - `compose.yml` pulls `registry.redhat.io/rhel9/postgresql-15` for the bundled database service.
@@ -178,6 +197,49 @@ Inside the bridge container opened with `make shell`:
 aap-bridge --version
 aap-bridge --help
 ```
+
+## Bridge and compose setup
+
+Steps 1, 2, 5, and 6 in [Quick Start](#quick-start) prepare the aap-bridge dev stack
+(PostgreSQL + bridge container). This is separate from the AAP golden-image toolchain
+(steps 7–9).
+
+### Initialize environment (`make init-env`)
+
+Creates `.env` from `.env.example` with generated PostgreSQL credentials, encryption key,
+and database URL. Required for `make up-dev` and the compose stack. Skip if you already
+ran `make setup` on the host (which also calls `init-env`).
+
+See also the [installation guide](../getting-started/installation.md#container-cli).
+
+### Registry login
+
+```bash
+podman login registry.redhat.io
+```
+
+One-time (per credential rotation) authentication so compose can pull Red Hat base images
+(PostgreSQL, UBI) and so you can pull/push golden images from a registry if needed.
+
+### Build and start (`make build`, `make up-dev`)
+
+```bash
+make build    # Build localhost/aap-bridge-dev:latest (Containerfile.dev)
+make up-dev   # mkdir artifact dirs; podman compose up -d db bridge
+```
+
+`make up-dev` is a shortcut for `podman compose up -d db bridge`. The bridge container
+bind-mounts `./src`, `./tests/unit`, and migration artifact directories from the repo root
+so code and data changes on the host are visible without rebuilding the image.
+
+### Smoke test (`make c-test`)
+
+```bash
+make c-test   # pytest unit tests inside the bridge container (quick, no coverage)
+```
+
+Confirms the bridge image and compose stack work before investing time in AAP golden
+image builds. For ongoing app development, see [Development Workflow](#development-workflow).
 
 ## Secrets Management
 
@@ -253,6 +315,37 @@ make build-aap VERSION=2.4 \
 Golden images are pre-installed AAP containers committed with `podman commit`.
 Build once, reuse many times.
 
+### Integration toolchain
+
+Steps 7 and 8 in [Quick Start](#quick-start) build the images used to **install** AAP on
+the host via Ansible and podman-remote. Run these once before `make build-aap`.
+
+**Podman API socket** — required for all integration make targets (`build-builder`,
+`build-aap-bases`, `build-aap`, `run-pair`, etc.). Enable once per host:
+
+```bash
+systemctl --user enable --now podman.socket
+```
+
+See [Prerequisites → Podman API socket](#podman-api-socket) if the socket is missing.
+
+**Builder image** — Ansible runner with collections, talks to the host Podman socket:
+
+```bash
+make build-builder
+```
+
+Produces `localhost/aap-bridge-builder:latest` from `tests/integration/Containerfile.builder`.
+
+**AAP base images** — UBI systemd init images with fixes for installer quirks:
+
+```bash
+make build-aap-bases
+```
+
+Builds `localhost/aap-base-ubi8:latest` and `localhost/aap-base-ubi9:latest` from
+`tests/integration/containerfiles/`. AAP 1.x–2.4 use UBI 8; 2.5–2.6 use UBI 9.
+
 ### Supported Versions
 
 | Version | Base | Install Method | Status |
@@ -262,6 +355,10 @@ Build once, reuse many times.
 | 2.5-2.6 | UBI 9 | Containerized (podman-in-podman) | Supported |
 
 ### Build a single version
+
+Step 9 in [Quick Start](#quick-start). Requires [secrets](#secrets-management), the
+[integration toolchain](#integration-toolchain), and `kernel.keys.maxkeys` (see
+[Prerequisites](#host-kernel-setting)).
 
 ```bash
 make build-aap VERSION=2.4
@@ -291,9 +388,9 @@ make list-golden
 
 ## Running Test Pairs
 
-Once golden images are built, start any source/target pair instantly. Golden images
-are clean installs only; the **source** instance is populated with test data when a
-pair starts or resets (target stays empty).
+Steps 10 and 11 in [Quick Start](#quick-start). Once golden images are built, start any
+source/target pair instantly. Golden images are clean installs only; the **source**
+instance is populated with test data when a pair starts or resets (target stays empty).
 
 ```bash
 # Start a pair (source populated with small test data by default)
@@ -405,6 +502,10 @@ serves the UI and routes API requests to the correct backend. The controller
 port (offset 43) provides direct API access but does not serve the UI.
 
 ## Development Workflow
+
+Day-to-day bridge app work after the stack from [Bridge and compose setup](#bridge-and-compose-setup)
+is running. Pair-specific migration testing uses [Using aap-bridge with a pair](#using-aap-bridge-with-a-pair)
+instead of plain `make shell`.
 
 ### App development (runs inside bridge container)
 
