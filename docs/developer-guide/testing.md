@@ -350,12 +350,34 @@ make build-aap-bases
 Builds `localhost/aap-base-ubi8:latest` and `localhost/aap-base-ubi9:latest` from
 `tests/integration/containerfiles/`. AAP 1.x–2.4 use UBI 8; 2.5–2.6 use UBI 9.
 
+### Installer bundles
+
+Place setup bundles in `tests/integration/files/aap-installer-bundles/` (gitignored).
+Newer versions (2.1+) can be downloaded automatically when `RH_TOKEN` / `rh_api_offline_token`
+is set. Older releases are no longer in the Red Hat download API and must be obtained from
+the [Red Hat Customer Portal](https://access.redhat.com) and placed manually.
+
+| Version | Expected bundle filename | API download |
+|---------|-------------------------|--------------|
+| 1.0 | `ansible-tower-setup-bundle-3.6.2-1.tar.gz` | No |
+| 1.1 | `ansible-tower-setup-bundle-3.7.3-1.tar.gz` | No |
+| 1.2 | `ansible-automation-platform-setup-bundle-1.2.7-2.tar.gz` | No |
+| 2.0 | `ansible-automation-platform-setup-bundle-2.0.2-1-early-access.tar.gz` | No |
+| 2.1+ | `ansible-automation-platform-setup-bundle-<version>*.tar.gz` (or containerized prefix for 2.5+) | Yes (if token set) |
+
+`bundle_name` in the version matrix is only set for 1.0–2.0 (manual bundles). Newer versions
+are discovered by version glob or downloaded from the Red Hat API.
+
+Tower-era bundles (1.0–1.1) use the `ansible-tower-setup-bundle` prefix instead of
+`ansible-automation-platform-setup-bundle`. The version matrix records the exact filename
+and whether API download is enabled (`bundle_download_api`).
+
 ### Supported Versions
 
 | Version | Base | Install Method | Status |
 |---------|------|---------------|--------|
-| 1.0-1.2 | UBI 8 | RPM (RHEL 7 bundle) | Best-effort |
-| 2.0-2.4 | UBI 8 | RPM | Supported |
+| 1.0-1.2 | UBI 8 | RPM (RHEL 7 bundle) | Best-effort; [manual bundle required](#installer-bundles) |
+| 2.0-2.4 | UBI 8 | RPM | Supported; 2.0 needs [manual bundle](#installer-bundles) |
 | 2.5-2.6 | UBI 9 | Containerized (podman-in-podman) | Supported |
 
 ### Build a single version
@@ -379,7 +401,7 @@ make build-aap-all
 
 Rebuilds every version in the matrix (1.0 through 2.6), continuing on failure with a
 `WARN` line. **AAP 1.0–1.2 are best-effort** — expect some to fail depending on bundle
-availability and installer quirks.
+availability and installer quirks. Versions 1.0–2.0 require [manual installer bundles](#installer-bundles).
 
 `make build-aap` always starts the install container from the **UBI base image**, even when
 a golden image for that version already exists locally. Golden images are only used for
