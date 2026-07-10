@@ -44,7 +44,7 @@
       ansible.builtin.shell:
         cmd: >
           podman exec {{ container_name }} bash -c "
-            for svc in ansible-tower automation-controller; do
+            for svc in automation-controller ansible-tower supervisord; do
               if systemctl list-unit-files \"\${svc}.service\" 2>/dev/null | grep -q \"\${svc}.service\"; then
                 echo \"\${svc}\"
                 systemctl is-active \"\${svc}.service\"
