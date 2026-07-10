@@ -27,7 +27,6 @@
                 bash -c "PATH=/usr/local/bin:${PATH} ansible-playbook --version | head -1"
           register: ansible_pin_check
           changed_when: false
-          failed_when: false
 
         - name: Show pinned ansible version
           ansible.builtin.debug:
@@ -40,32 +39,81 @@
             bash -c "cd {{ installer_dir }} && PATH=/usr/local/bin:${PATH} ./setup.sh"
       register: install_result
       timeout: 3600
-      failed_when: false
 
-    - name: Check if controller installed successfully
-      ansible.builtin.command:
+    - name: Detect installed controller systemd unit
+      ansible.builtin.shell:
         cmd: >
-          podman exec {{ container_name }}
-            systemctl is-active automation-controller.service
-      register: controller_service
-      failed_when: false
+          podman exec {{ container_name }} bash -c "
+            for svc in ansible-tower automation-controller; do
+              if systemctl list-unit-files \"\${svc}.service\" 2>/dev/null | grep -q \"\${svc}.service\"; then
+                echo \"\${svc}\"
+                systemctl is-active \"\${svc}.service\"
+                exit 0
+              fi
+            done
+            echo none
+            echo not-installed
+          "
+      register: controller_detect
       changed_when: false
 
-    - name: Fail if controller did not install (non-best-effort version)
-      ansible.builtin.fail:
-        msg: "AAP {{ aap_version }} controller installation failed (exit code: {{ install_result.rc }})"
+    - name: Parse controller service status
+      ansible.builtin.set_fact:
+        controller_unit: "{{ controller_detect.stdout_lines[0] | default('none') | trim }}"
+        controller_state: "{{ controller_detect.stdout_lines[1] | default('unknown') | trim }}"
+
+    - name: Report controller install status
+      ansible.builtin.debug:
+        msg: >-
+          AAP {{ aap_version }} controller:
+          unit={{ controller_unit }},
+          state={{ controller_state }},
+          setup.sh rc={{ install_result.rc }}
+
+    - name: Start controller if installed but not active
+      ansible.builtin.command:
+        cmd: "podman exec {{ container_name }} systemctl start {{ controller_unit }}.service"
       when:
-        - controller_service.stdout | default('') != 'active'
-        - not (ver_config.best_effort | default(false))
+        - controller_unit != 'none'
+        - controller_state != 'active'
+
+    - name: Re-detect controller state after start attempt
+      ansible.builtin.shell:
+        cmd: >
+          podman exec {{ container_name }} bash -c "
+            systemctl is-active {{ controller_unit }}.service
+          "
+      register: controller_redetect
+      changed_when: false
+      when:
+        - controller_unit != 'none'
+        - controller_state != 'active'
+
+    - name: Update controller state after start attempt
+      ansible.builtin.set_fact:
+        controller_state: "{{ controller_redetect.stdout | default(controller_state) | trim }}"
+      when: controller_redetect is defined
+
+    - name: Fail when setup.sh or controller install failed
+      ansible.builtin.fail:
+        msg: >-
+          AAP {{ aap_version }} controller installation failed.
+          setup.sh rc={{ install_result.rc }},
+          controller unit={{ controller_unit }},
+          state={{ controller_state }}.
+          Inspect {{ installer_dir }}/setup.log and /var/log/tower/setup-*.log
+          inside {{ container_name }}.
+      when: install_result.rc != 0 or controller_unit == 'none' or controller_state != 'active'
 
   rescue:
     - name: Dump installer setup log
       ansible.builtin.command:
         cmd: >
           podman exec {{ container_name }}
-            bash -c "cat /var/log/tower/setup-*.log 2>/dev/null || cat {{ installer_dir }}/setup.log 2>/dev/null || echo 'No setup log found'"
+            bash -c "cat /var/log/tower/setup-*.log 2>/dev/null ||
+                     cat {{ installer_dir }}/setup.log 2>/dev/null ||
+                     echo 'No setup log found'"
       register: setup_log
-      failed_when: false
       changed_when: false
 
     - name: Show installer log (last 150 lines)
@@ -77,12 +125,6 @@
         msg: "{{ install_result.stdout_lines[-50:] | default(['No stdout']) }}"
       when: install_result is defined
 
-    - name: Re-raise failure
+    - name: Fail install after dumping logs
       ansible.builtin.fail:
         msg: "AAP {{ aap_version }} controller installation failed. See log output above."
-      when: not (ver_config.best_effort | default(false))
-
-    - name: Warn (best-effort version)
-      ansible.builtin.debug:
-        msg: "WARNING: AAP {{ aap_version }} install failed but best_effort=true, continuing."
-      when: ver_config.best_effort | default(false)
