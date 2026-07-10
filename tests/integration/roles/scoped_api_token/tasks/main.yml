@@ -23,6 +23,7 @@
 
 - name: Calculate host-published API endpoints
   ansible.builtin.set_fact:
+    _controller_internal_port: "{{ ':8443' if _installer_method == 'containerized' else '' }}"
     _api_port: >-
       {{
         (port_base | int + port_offset_envoy | int)
@@ -36,8 +37,12 @@
         if _gateway_enabled
         else (_ver_config.api.controller_path | default('/api/v2')) + '/ping/'
       }}
+    _use_tokens_api: "{{ _installer_method == 'containerized' or (version_index[aap_version] | int) >= 2 }}"
+    _use_oauth2_cli: "{{ _installer_method != 'containerized' and (version_index[aap_version] | int) == 1 }}"
+    _use_preauth_cli: "{{ _installer_method != 'containerized' and (version_index[aap_version] | int) == 0 }}"
 
-- name: Wait for host-published API
+- name: Wait for host-published API (tokens API versions)
+  when: _use_tokens_api | bool
   ansible.builtin.uri:
     url: "https://127.0.0.1:{{ _api_port }}{{ _ping_path }}"
     method: GET
@@ -48,8 +53,21 @@
   delay: "{{ token_delay }}"
   until: _api_ping.status == 200
 
-- name: Create scoped token via tokens API (AAP 2.0+ or platform gateway)
-  when: _installer_method == 'containerized' or (version_index[aap_version] | int) >= 3
+- name: Wait for controller API inside container (Tower CLI token versions)
+  when: (_use_oauth2_cli | bool) or (_use_preauth_cli | bool)
+  ansible.builtin.command:
+    cmd: >
+      podman exec {{ container_name }}
+        curl -sk -o /dev/null -w '%{http_code}'
+        https://localhost{{ _controller_internal_port }}{{ _ping_path }}
+  register: _api_ping_container
+  retries: "{{ token_retries }}"
+  delay: "{{ token_delay }}"
+  until: _api_ping_container.stdout | default('') == '200'
+  changed_when: false
+
+- name: Create scoped token via tokens API (AAP 1.2+ or platform gateway)
+  when: _use_tokens_api | bool
   block:
     - name: POST scoped token to AAP tokens API
       ansible.builtin.uri:
@@ -74,10 +92,27 @@
       ansible.builtin.set_fact:
         scoped_api_token: "{{ _token_api.json.token | default('') | trim }}"
 
-- name: Create scoped preauth token (RPM, AAP 1.x only)
-  when:
-    - _installer_method != 'containerized'
-    - (version_index[aap_version] | int) < 3
+- name: Create scoped oauth2 token via awx-manage (RPM, AAP 1.1 only)
+  when: _use_oauth2_cli | bool
+  block:
+    - name: Run create_oauth2_token
+      ansible.builtin.command:
+        cmd: >
+          podman exec {{ container_name }}
+            awx-manage create_oauth2_token --user admin
+      register: _token_oauth2
+      retries: "{{ token_retries }}"
+      delay: "{{ token_delay }}"
+      until: _token_oauth2.rc == 0 and (_token_oauth2.stdout | default('') | trim | length > 0)
+      changed_when: false
+      no_log: true
+
+    - name: Resolve oauth2 token result
+      ansible.builtin.set_fact:
+        scoped_api_token: "{{ (_token_oauth2.stdout | default('') | trim | split('\n') | last | trim) if (_token_oauth2.stdout | default('') | trim | length > 0) else '' }}"
+
+- name: Create scoped preauth token via awx-manage (RPM, AAP 1.0 only)
+  when: _use_preauth_cli | bool
   block:
     - name: Run create_preauth_token with scope
       ansible.builtin.command:
