@@ -63,6 +63,11 @@ RUN systemctl enable sshd
 
 RUN echo "root ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/root
 
+# AAP 2.0 installer subuid module calls max() on /etc/subuid entries; an empty
+# file causes "max() arg is an empty sequence" inside containers.
+RUN printf 'root:0:1\n' > /etc/subuid && \
+    printf 'root:0:1\n' > /etc/subgid
+
 RUN echo "aap-bridge-testing-base-ubi8" > /etc/aap-bridge-base
 
 EXPOSE 22 80 443 5432 8443
