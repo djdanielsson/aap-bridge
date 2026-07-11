@@ -114,6 +114,25 @@
         /tmp/aap-inventory-{{ container_name }}
         {{ container_name }}:{{ installer_dir }}/inventory
 
+- name: Fix subuid ranges for awx podman on UBI8 (AAP 2.0+)
+  ansible.builtin.shell:
+    cmd: |
+      podman exec {{ container_name }} bash -c '
+        for f in /etc/subuid /etc/subgid; do
+          max_end=$(awk -F: "{e=\$2+\$3; if(e>max) max=e} END{print max+0}" "$f" 2>/dev/null || echo 0)
+          if [ "${max_end:-0}" -le 65535 ]; then
+            printf "root:0:65536\n" > "$f"
+            echo "fixed:$f"
+          fi
+        done
+      '
+  register: subuid_fixup
+  changed_when: "'fixed:' in subuid_fixup.stdout"
+  when:
+    - ver_config.installer.method == 'rpm'
+    - ver_config.rhel_version | int == 8
+    - aap_version is version('2.0', '>=')
+
 - name: Run AAP installer (RPM method)
   ansible.builtin.include_tasks: install-rpm.yml
   when: ver_config.installer.method == 'rpm'
