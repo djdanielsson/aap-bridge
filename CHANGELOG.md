@@ -18,6 +18,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   a FastAPI engine, and an nginx-served frontend (`make build-all` / `make up`),
   with connection management, migration preview, TUI-matching phased migration
   controls, job history, and live log streaming
+- **Integration Testing Infrastructure**: Ansible-driven workflow under
+  `tests/integration/` for building UBI-based AAP golden images (1.0–2.7),
+  orchestrating source/target pairs (`make build-aap`, `run-pair`, `reset-pair`),
+  and validating bridge connectivity; documented in
+  `docs/developer-guide/testing.md`
 - **Source Version Support**: AAP 1.0, 1.1, 1.2, 2.0, 2.1, 2.2, 2.5, and 2.6 are now
   supported as migration sources in addition to the original 2.3/2.4/2.5 paths
 - **Survey Spec Migration**: Job template and workflow job template survey specs are now
@@ -86,9 +91,6 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - **Documentation – Token and URL Guidance**: Clarified read-only source vs
   read/write target API tokens, version-driven API routing, and corrected
   `SECURITY.md` to use `SOURCE__TOKEN`/`TARGET__TOKEN`
-
-### Added
-
 - **Testing – Host-Visible Migration Artifacts**: Bridge dev container bind-mounts
   `exports`, `xformed`, `reports`, `logs`, and `schemas` from the repo root (matching
   the engine service) so prep/export/transform output is visible on the host

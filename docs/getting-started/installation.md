@@ -238,3 +238,5 @@ aap-bridge --help
 
 - [Quick Start](quickstart.md) - Get up and running in 5 minutes
 - [Configuration](configuration.md) - Configure your environment
+- [Testing with Ephemeral AAP Instances](../developer-guide/testing.md) - Build golden
+  images and run migration test pairs (podman + make; no local Python/AAP required)

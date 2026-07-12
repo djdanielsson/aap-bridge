@@ -77,7 +77,13 @@ AAP instances require a subscription manifest to be fully licensed. To set this 
 
 The build process will automatically detect and apply the manifest after
 installation. If no manifest is found, the instance will be unlicensed (a
-warning is printed during build).
+warning is printed during build). A manifest upload failure in the build log
+is non-blocking — the golden image is still created; place a valid `.zip` in
+`tests/integration/files/manifest/` before the next build to license the instance.
+
+> **Note:** AAP **2.7** golden images can be built for integration testing, but
+> aap-bridge migration compatibility still tops out at **2.6** until separate
+> 2.7 migration support lands in the tool.
 
 ## Architecture
 
@@ -376,9 +382,9 @@ and whether API download is enabled (`bundle_download_api`).
 
 | Version | Base | Install Method | Status |
 |---------|------|---------------|--------|
-| 1.0-1.2 | UBI 8 | RPM (RHEL 7 bundle) | Best-effort; [manual bundle required](#installer-bundles) |
+| 1.0-1.2 | UBI 8 | RPM (RHEL 7 bundle) | Supported; [manual bundle required](#installer-bundles) |
 | 2.0-2.4 | UBI 8 | RPM | Supported; 2.0 needs [manual bundle](#installer-bundles) |
-| 2.5-2.7 | UBI 9 | Containerized (podman-in-podman) | Supported |
+| 2.5-2.7 | UBI 9 | Containerized (podman-in-podman) | Supported (2.7 for golden images; migration tool supports through 2.6) |
 
 ### Build a single version
 
@@ -407,6 +413,18 @@ Versions 1.0–2.0 require [manual installer bundles](#installer-bundles).
 `make build-aap` always starts the install container from the **UBI base image**, even when
 a golden image for that version already exists locally. Golden images are only used for
 `run-pair` / `reset-pair` fast startup, not for single-version rebuilds.
+
+### Golden image API tokens
+
+Each golden image build creates a **write** token saved to
+`tests/integration/generated/images/<version>_rw_token`. Pair targets reuse this file;
+the source gets a separate read-only token per pair in `generated/pairs/`.
+
+| AAP version | Token method |
+|-------------|--------------|
+| 1.0, 1.1 (Tower RPM) | `awx-manage create_oauth2_token` inside the container (no scope API) |
+| 1.2–2.4 (RPM / controller API) | `POST /api/v2/tokens/` |
+| 2.5+ (containerized / gateway) | `POST /api/gateway/v1/tokens/` |
 
 ### Push to a registry
 
@@ -506,14 +524,16 @@ Browse the AAP UIs from your host browser (accept the self-signed certificate):
 - Source UI: `https://localhost:<source-controller-port>/` (e.g. `10743` for 2.4)
 - Target UI: `https://localhost:<target-envoy-port>/` for 2.5+ (e.g. `20947` for 2.6)
 
-AAP 2.5+ golden images get a **platform gateway** write token at build time via
-`/api/gateway/v1/tokens/`. Pair targets reuse that token from
-`generated/images/<version>_rw_token` — no second write token is created at pair
-time. The source gets a dedicated read token per pair in `generated/pairs/`.
 Run `make build-aap VERSION=2.6` after upgrading testing infrastructure if pair
 start fails with a missing golden-image token.
 
-See [Port Allocation](#port-allocation) below for the port formula.
+See [Golden image API tokens](#golden-image-api-tokens) and [Port Allocation](#port-allocation).
+
+### Batch connectivity checks
+
+`make test-all` runs `test-bridge` for each source version **1.0 through 2.5** against a
+**2.6** target (requires golden images for both sides). It does not yet include 2.6 as a
+source or 2.7 as a target — use explicit `run-pair` / `test-bridge` for those combinations.
 
 ### Port Allocation
 
@@ -596,6 +616,9 @@ automatically. Common issues:
 | `container state improper` / build hangs at "Wait for container" | Stuck `podman wait` on a crashed container — Ctrl+C, `podman rm -f aap-*-build`, retry; if the container exits in under a second, check host systemd-in-podman (see below) |
 | AAP container exits immediately (exit 255) | Host cannot run `--systemd always` containers; verify `podman run -d --systemd always --privileged registry.redhat.io/ubi9/ubi-init:latest` stays running, then reboot or fix cgroup/podman if not |
 | `storage/overlay/tempdirs: permission denied` | Run `chown -R aap:aap /home/aap/.local/share/containers/storage` inside the target container, or `make reset-pair` (ownership fix runs at start) |
+| `mapping 1:65536 in /etc/subuid includes the user UID` (AAP 2.0) | Rebuild UBI8 base (`make build-aap-bases`) or retry build — install playbooks seed `root:0:65536` before `setup.sh` |
+| `[automationmetrics] section` missing (AAP 2.7 preflight) | Fixed: gateway inventory template adds metrics group and DB vars for 2.7+ |
+| `rsync` / `mknod` / `pymp-*` during golden image bake (2.5+) | Fixed: bake step skips ephemeral FIFOs and stops metrics containers before rsync |
 
 ## File Layout
 

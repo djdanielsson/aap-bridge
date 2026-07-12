@@ -16,6 +16,9 @@ in the repository.
   bridge images (`make build`, `make up-dev`, `make shell`, etc.)
 - Web UI: React/PatternFly browser interface with connection management, migration
   preview, TUI-matching phased migration controls, job history, and live log streaming
+- Integration testing infrastructure: Ansible playbooks and roles under
+  `tests/integration/` for golden-image builds (AAP 1.0–2.7), pair orchestration,
+  and bridge connectivity checks (`make build-aap`, `run-pair`, `reset-pair`, etc.)
 - Source version support expanded to AAP 1.0, 1.1, 1.2, 2.0, 2.1, 2.2, 2.5, and 2.6
 - Survey spec migration for job templates and workflow job templates
 - Notification template association migration (started/success/error/approvals)
