@@ -69,38 +69,22 @@ class ConnectionService:
         elif "token" in update_data:
             update_data["token"] = encrypt_token(update_data["token"])
         discovery_needs_reset = False
-        reset_ping_metadata = False
-        reset_auth_metadata = False
         if "url" in update_data and update_data["url"]:
             normalized_url, api_prefix = split_connection_url(update_data["url"])
             update_data["url"] = normalized_url
             update_data["api_prefix"] = api_prefix
             discovery_needs_reset = True
-            reset_ping_metadata = True
-            reset_auth_metadata = True
 
-        if "verify_ssl" in update_data:
-            reset_ping_metadata = True
-            reset_auth_metadata = True
-        elif "token" in update_data:
-            reset_auth_metadata = True
-
-        if discovery_needs_reset or reset_ping_metadata:
+        if discovery_needs_reset:
             update_data.update(
                 {
                     "ping_status": "unknown",
                     "ping_error": None,
-                }
-            )
-        if discovery_needs_reset or reset_auth_metadata:
-            update_data.update(
-                {
                     "auth_status": "unknown",
                     "auth_error": None,
+                    "last_checked": None,
                 }
             )
-        if discovery_needs_reset or reset_ping_metadata or reset_auth_metadata:
-            update_data["last_checked"] = None
 
         role = update_data.get("role", conn.role)
         if "version" in update_data and update_data["version"] is not None:
@@ -181,8 +165,7 @@ class ConnectionService:
         conn.ping_error = ping_error
         conn.auth_status = auth_status
         conn.auth_error = auth_error
-        if ping_status == "ok":
-            conn.api_prefix = api_prefix
+        conn.api_prefix = api_prefix
         conn.last_checked = datetime.now(UTC)
         self.db.commit()
 
