@@ -384,7 +384,7 @@ and whether API download is enabled (`bundle_download_api`).
 |---------|------|---------------|--------|
 | 1.0-1.2 | UBI 8 | RPM (RHEL 7 bundle) | Supported; [manual bundle required](#installer-bundles) |
 | 2.0-2.4 | UBI 8 | RPM | Supported; 2.0 needs [manual bundle](#installer-bundles) |
-| 2.5-2.7 | UBI 9 | Containerized (podman-in-podman) | Supported (2.7 for golden images; migration tool supports through 2.6) |
+| 2.5-2.7 | UBI 9 | Containerized (podman-in-podman) | Supported |
 
 ### Build a single version
 
